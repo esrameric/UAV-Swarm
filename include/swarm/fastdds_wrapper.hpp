@@ -15,8 +15,11 @@
 //    QoS               : "Bu akış nasıl davransın?" ayarları — güvenilirlik,
 //                        kalıcılık, geçmiş derinliği.
 //
-//  Bölüm 3.4'teki dört topic burada kurulur. Topic bazlı QoS ayrımı
-//  (Best-Effort vs Reliable) Faz 4.2'de eklenir.
+//  QoS HARİTASI (Bölüm 3.4):
+//    swarm/heartbeat  -> Best-Effort, Volatile          (~10 Hz, tazelik esas)
+//    swarm/telemetry  -> Best-Effort, Volatile          (20-50 Hz)
+//    swarm/task_alloc -> Reliable, Transient Local      (kayıp kabul edilemez)
+//    swarm/consensus  -> Reliable, Transient Local      (kayıp kabul edilemez)
 // ============================================================================
 
 #pragma once

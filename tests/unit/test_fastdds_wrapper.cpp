@@ -202,3 +202,97 @@ TEST(FastDDSWrapper, AyriDomainlerBirbiriniDuymaz)
     EXPECT_FALSE(ulasti);
     EXPECT_EQ(alinan_sayisi.load(), 0);
 }
+
+// ============================================================================
+//  Faz 4.2 — Topic bazlı QoS ayrımının davranışa yansıması
+//
+//  QoS'u dışarıdan doğrudan okuyamayız; onun yerine DAVRANIŞINI sınıyoruz.
+//  Ayrımı en net gösteren senaryo "geç katılan abone" (late joiner):
+//    Reliable + Transient Local -> yayından SONRA katılan abone de alır.
+//    Best-Effort + Volatile     -> yayından SONRA katılan abone ALMAZ.
+// ============================================================================
+
+TEST(FastDDSQos, GuvenilirKanalGecKatilanAboneyeDeUlasir)
+{
+    swarm::FastDDSWrapper yayinci{TEST_DOMAIN + 2};
+    ASSERT_TRUE(yayinci.init());
+
+    swarm::TaskAllocation emir;
+    emir.task_id(555);
+    emir.target_role(swarm::DroneRole::SCOUT);
+    emir.target_x(7.0);
+    emir.target_y(8.0);
+
+    // Ortada henüz HİÇ abone yokken yayınlıyoruz.
+    ASSERT_TRUE(yayinci.publish(emir));
+
+    // Abone ancak şimdi ağa katılıyor.
+    swarm::FastDDSWrapper gec_katilan{TEST_DOMAIN + 2};
+    ASSERT_TRUE(gec_katilan.init());
+
+    std::mutex kilit;
+    std::atomic<int> alinan_sayisi{0};
+    swarm::TaskAllocation son_alinan;
+    gec_katilan.set_task_allocation_callback([&](const swarm::TaskAllocation& gelen) {
+        const std::lock_guard<std::mutex> koruma(kilit);
+        son_alinan = gelen;
+        ++alinan_sayisi;
+    });
+
+    // TRANSIENT_LOCAL sayesinde yayıncı sakladığı örneği geç katılana yollar.
+    const bool ulasti = kosul_saglanana_kadar_bekle(
+            [&]() { return alinan_sayisi.load() > 0; }, 10s);
+
+    ASSERT_TRUE(ulasti) << "Transient Local gecmis ornegi geç katilana ulasmadi";
+
+    const std::lock_guard<std::mutex> koruma(kilit);
+    EXPECT_EQ(son_alinan.task_id(), 555u);
+}
+
+TEST(FastDDSQos, BestEffortKanalGecmisiSaklamaz)
+{
+    swarm::FastDDSWrapper yayinci{TEST_DOMAIN + 3};
+    ASSERT_TRUE(yayinci.init());
+
+    // Abone yokken bir heartbeat yayınlıyoruz.
+    ASSERT_TRUE(yayinci.publish(heartbeat_olustur(9)));
+
+    swarm::FastDDSWrapper gec_katilan{TEST_DOMAIN + 3};
+    ASSERT_TRUE(gec_katilan.init());
+
+    std::atomic<int> alinan_sayisi{0};
+    gec_katilan.set_heartbeat_callback([&](const swarm::Heartbeat&) { ++alinan_sayisi; });
+
+    // VOLATILE olduğu için geçmiş yayın saklanmaz; yeni yayın da yapmıyoruz.
+    const bool ulasti = kosul_saglanana_kadar_bekle(
+            [&]() { return alinan_sayisi.load() > 0; }, 2s);
+
+    EXPECT_FALSE(ulasti);
+    EXPECT_EQ(alinan_sayisi.load(), 0);
+}
+
+TEST(FastDDSQos, BestEffortKanalYeniYayinlariNormalTasir)
+{
+    // Geçmişi saklamaması, kanalın çalışmadığı anlamına gelmez: abone
+    // katıldıktan SONRAKİ yayınlar normal şekilde akar.
+    swarm::FastDDSWrapper yayinci{TEST_DOMAIN + 4};
+    swarm::FastDDSWrapper alici{TEST_DOMAIN + 4};
+    ASSERT_TRUE(yayinci.init());
+    ASSERT_TRUE(alici.init());
+
+    std::atomic<int> alinan_sayisi{0};
+    alici.set_telemetry_callback([&](const swarm::Telemetry&) { ++alinan_sayisi; });
+
+    swarm::Telemetry telemetri;
+    telemetri.drone_id(1);
+    telemetri.seq_num(1);
+
+    const bool ulasti = kosul_saglanana_kadar_bekle(
+            [&]() {
+                yayinci.publish(telemetri);
+                return alinan_sayisi.load() > 0;
+            },
+            10s);
+
+    EXPECT_TRUE(ulasti);
+}

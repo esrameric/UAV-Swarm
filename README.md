@@ -137,6 +137,7 @@ yapılmış?" sorusunun cevabını tek yerde bulması.
 | V21 | Teklif ile oy mesajının ayrımı | Aynı `Consensus` mesajı kullanılır; `vote == PENDING` ise **teklif**, `ACK`/`NACK` ise **oy**dur | Ayrı bir mesaj tipi eklemeye gerek kalmadı; `PENDING = 0` zaten "henüz oy yok" demek olduğu için anlam doğal olarak örtüşüyor. |
 | V22 | Drone'un oy ölçütü | Batarya `< %15` ise `NACK`, aksi hâlde `ACK` | Bölüm 3.6 "her drone kendi durumunu kontrol eder" diyor ama ölçütü tanımlamıyordu; `check_emergency()` ile aynı eşik kullanıldı. |
 | V23 | Oy verecek düğüm listesi | Teklif anında **ONLINE olan** drone'lar | Hiç ayağa kalkmamış bir drone'un oyunu beklemek, sürüyü her seferinde 5 saniyelik zaman aşımına mahkûm ederdi (Bölüm 2, non-blocking keşif). |
+| V24 | **`task_alloc`/`consensus` için "TCP"** | Teslim garantisi **QoS ile** sağlanıyor (`RELIABLE` + `TRANSIENT_LOCAL`); taşıma katmanı participant'ın varsayılan UDP taşıyıcısı | Bölüm 3.4 bu iki topic için "TCP" diyor. DDS'te **taşıma katmanı participant seviyesindedir, topic seviyesinde seçilemez** — bir DomainParticipant'ın bazı topic'lerini TCP, bazılarını UDP yapmak mümkün değil. Planın istediği asıl şey (%100 ulaştırma garantisi) `RELIABLE` QoS ile birebir karşılanıyor ve testle doğrulanıyor. Gerçekten TCP taşıyıcı isteniyorsa `DomainParticipantQos`'a bir `TCPv4TransportDescriptor` eklenip initial peers elle tanımlanmalı; bu, multicast tabanlı otomatik keşfi devre dışı bırakır ve Bölüm 2'deki "IP'leri ağ üzerinden keşfet" gereksinimiyle çelişir. |
 
 ---
 

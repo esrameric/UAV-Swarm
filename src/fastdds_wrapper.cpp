@@ -47,7 +47,8 @@ public:
     using GeriCagirma = std::function<void(const MesajTipi&)>;
 
     bool kur(DomainParticipant* participant,
-             const std::string& topic_adi)
+             const std::string& topic_adi,
+             bool guvenilir)
     {
         participant_ = participant;
 
@@ -74,9 +75,11 @@ public:
             return false;
         }
 
-        // QoS ayrimi (Best-Effort / Reliable) Faz 4.2'de eklenecek;
-        // simdilik varsayilan QoS ile calisiyoruz.
-        writer_ = publisher_->create_datawriter(topic_, DATAWRITER_QOS_DEFAULT);
+        DataWriterQos yazici_qos = DATAWRITER_QOS_DEFAULT;
+        qos_uygula(yazici_qos.reliability(), yazici_qos.durability(),
+                   yazici_qos.history(), guvenilir);
+
+        writer_ = publisher_->create_datawriter(topic_, yazici_qos);
         if (writer_ == nullptr)
         {
             return false;
@@ -89,7 +92,11 @@ public:
             return false;
         }
 
-        reader_ = subscriber_->create_datareader(topic_, DATAREADER_QOS_DEFAULT, this);
+        DataReaderQos okuyucu_qos = DATAREADER_QOS_DEFAULT;
+        qos_uygula(okuyucu_qos.reliability(), okuyucu_qos.durability(),
+                   okuyucu_qos.history(), guvenilir);
+
+        reader_ = subscriber_->create_datareader(topic_, okuyucu_qos, this);
         return reader_ != nullptr;
     }
 
@@ -170,6 +177,50 @@ public:
     }
 
 private:
+    // QoS'u tek yerde kuruyoruz ki writer ve reader tarafi birbirinden
+    // ayrismasin: UYUSMAYAN QoS'ta DDS uclari HIC ESLESMEZ ve veri akmaz.
+    // Bu, DDS'te en sik yapilan hatalardan biridir ve sessizce olur -
+    // hata mesaji yoktur, sadece veri gelmez.
+    static void qos_uygula(
+            ReliabilityQosPolicy& guvenilirlik,
+            DurabilityQosPolicy& kalicilik,
+            HistoryQosPolicy& gecmis,
+            bool guvenilir)
+    {
+        if (guvenilir)
+        {
+            // --- Komut ve consensus kanallari (Bolum 3.4) ---
+            // RELIABLE: DDS teslim edilmeyen ornekleri yeniden gonderir;
+            // %100 ulastirma garantisi. Gorev emrinin kaybolmasi kabul
+            // edilemez.
+            guvenilirlik.kind = RELIABLE_RELIABILITY_QOS;
+
+            // TRANSIENT_LOCAL: yayinci son orneklerini saklar ve SONRADAN
+            // katilan bir aboneye de gonderir. Emir yayinlandiktan sonra aga
+            // giren bir drone son gorev emrini yine de gorebilsin diye.
+            kalicilik.kind = TRANSIENT_LOCAL_DURABILITY_QOS;
+
+            gecmis.kind = KEEP_LAST_HISTORY_QOS;
+            gecmis.depth = 10;
+        }
+        else
+        {
+            // --- Heartbeat ve telemetri kanallari ---
+            // BEST_EFFORT: kaybolan paket yeniden gonderilmez. Yuksek
+            // frekansli (10-50 Hz) bir akista tazelik, eksiksizlikten daha
+            // onemlidir; eski bir konumu tekrar gondermenin degeri yoktur.
+            guvenilirlik.kind = BEST_EFFORT_RELIABILITY_QOS;
+
+            // VOLATILE: gecmis saklanmaz. Sonradan katilan bir dugumun eski
+            // heartbeat'lere ihtiyaci yok, bir sonrakini zaten 100 ms icinde
+            // alacak.
+            kalicilik.kind = VOLATILE_DURABILITY_QOS;
+
+            gecmis.kind = KEEP_LAST_HISTORY_QOS;
+            gecmis.depth = 1;   // yalnizca en tazesi ilgilendiriyor
+        }
+    }
+
     DomainParticipant* participant_ = nullptr;
     TypeSupport tip_destegi_;
     Topic* topic_ = nullptr;
@@ -235,11 +286,15 @@ bool FastDDSWrapper::init()
         return false;
     }
 
-    // Bölüm 3.4'teki dört topic. Topic bazlı QoS ayrımı Faz 4.2'de gelecek.
-    if (!icerik_->heartbeat.kur(icerik_->participant, "swarm/heartbeat") ||
-        !icerik_->telemetry.kur(icerik_->participant, "swarm/telemetry") ||
-        !icerik_->task_alloc.kur(icerik_->participant, "swarm/task_alloc") ||
-        !icerik_->consensus.kur(icerik_->participant, "swarm/consensus"))
+    // Bölüm 3.4'teki QoS haritası. İsimlendirilmiş sabitler, çağrı
+    // yerinde `true`/`false` görmekten çok daha okunur.
+    const bool BEST_EFFORT = false;
+    const bool GUVENILIR = true;
+
+    if (!icerik_->heartbeat.kur(icerik_->participant, "swarm/heartbeat", BEST_EFFORT) ||
+        !icerik_->telemetry.kur(icerik_->participant, "swarm/telemetry", BEST_EFFORT) ||
+        !icerik_->task_alloc.kur(icerik_->participant, "swarm/task_alloc", GUVENILIR) ||
+        !icerik_->consensus.kur(icerik_->participant, "swarm/consensus", GUVENILIR))
     {
         std::cerr << "[FastDDSWrapper] Topic kurulumu basarisiz" << std::endl;
         return false;
