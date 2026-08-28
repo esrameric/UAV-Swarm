@@ -305,6 +305,35 @@ zamanında** engeller.
 dışarıdaki hangi değişkenleri kullanacağını söyler; `&` referansla (asıl
 nesne), isim tek başına ise kopyayla yakalar.
 
+**Mutex (`std::mutex`)** — "Mutual exclusion" = karşılıklı dışlama. Aynı
+anda yalnızca bir thread'in korunan veriye dokunmasını sağlayan kilit.
+
+**Veri yarışı (data race)** — İki thread'in aynı veriye, en az biri yazarak,
+kilitsiz erişmesi. C++'ta bu **tanımsız davranıştır**: bazen çalışır, bazen
+sessizce yanlış sonuç verir, bazen çöker. Bu yüzden paylaşılan her yapı bir
+mutex ile korunur.
+
+**`std::lock_guard`** — RAII tabanlı kilit. Kurulduğu anda mutex'i kilitler,
+kapsam bittiğinde **otomatik** açar — fonksiyondan erken `return` edilse veya
+istisna atılsa bile. Elle `lock()`/`unlock()` yazmak, bir yolda `unlock`'u
+unutup tüm programı kilitleme riski taşır.
+
+**`mutable`** — Bir üyenin, `const` üye fonksiyon içinde bile
+değiştirilebilmesini sağlar. Mutex'ler için gerekli: `peer_count()` mantıksal
+olarak `const`'tur ama okumak için yine de kilidi kilitlemek zorundadır.
+
+**Neden her veriye mutex konmaz?** `task_queue_`'ya yalnızca Task Engine
+thread'i dokunur. Tek thread'in eriştiği veriye kilit koymak hem gereksiz
+maliyettir hem de kodu okuyana yanlış bir "burada yarış var" sinyali verir.
+
+**`std::deque`** — İki uçtan da hızlı ekleme/çıkarma yapılabilen kuyruk.
+Komutlar sona eklenir, baştan işlenir (FIFO — ilk giren ilk çıkar).
+
+**`std::move` ve taşıma (move)** — `std::unique_ptr` kopyalanamaz (tek
+sahiplik kuralı), yalnızca **taşınabilir**. `std::move`, "bu nesnenin
+sahipliğini devrediyorum" demenin yoludur; taşımadan sonra çağıranın elindeki
+işaretçi boşalır.
+
 **`join()`** — Bir thread'in bitmesini beklemek. Beklenmezse ana thread önce
 bitip programı sonlandırabilir ve iş yarım kalır.
 
