@@ -273,6 +273,43 @@ parametresi alır. Böylece 3 saniyelik zaman aşımı, testte gerçekten 3 sani
 beklenerek değil, ileri bir zaman değeri verilerek anında ve deterministik
 olarak sınanabilir.
 
+### Nesne Yönelimli Programlama
+
+**Sınıf (`class`) ve kalıtım (inheritance)** — Sınıf, veri ve davranışı bir
+arada tanımlayan tiptir. `class SahteGorev : public Task` yazımı kalıtımdır:
+"SahteGorev **bir** Task'tır". Child sınıf, taban sınıfın arayüzünü devralır.
+
+**Soyut sınıf ve saf sanal fonksiyon** — Gövdesi olmayan, `= 0` ile biten
+fonksiyona **saf sanal** (pure virtual) denir. En az bir tanesine sahip sınıf
+**soyut** olur: doğrudan örneği oluşturulamaz, yalnızca miras alınmak için
+vardır. Her child, bu fonksiyonların gövdesini yazmak zorundadır.
+
+**Polimorfizm** — Farklı türden nesneleri **aynı arayüz** üzerinden
+kullanabilmek. Task Engine elindeki görevin hangi child olduğunu bilmez,
+hepsini `Task*` olarak tutar; `run()` çağrısı yine de doğru child'ın
+gövdesine gider. Bu sayede yeni bir görev eklemek mevcut hiçbir dosyayı
+değiştirmeyi gerektirmez (**Open/Closed ilkesi**).
+
+**State Pattern** — Bir nesnenin davranışının, içinde bulunduğu duruma göre
+değişmesini; her durumu ayrı bir sınıf yaparak çözen tasarım deseni. Burada
+her görev (Idle, Hover, Landing...) ayrı bir `Task` child'ıdır. Alternatifi
+olan dev bir `if/else` veya `switch` bloğu her yeni durumda büyür ve
+okunamaz hâle gelir.
+
+**`virtual` yıkıcı** — Polimorfik olarak kullanılan (taban sınıf işaretçisi
+üzerinden silinen) her sınıfın yıkıcısı `virtual` olmalıdır. Aksi hâlde
+silme anında yalnızca taban sınıfın yıkıcısı çalışır, child'ınki atlanır ve
+sessiz bir kaynak sızıntısı oluşur.
+
+**`override`** — "Bu fonksiyon taban sınıftaki sanal bir fonksiyonu eziyor"
+demektir. İsim veya imza yanlış yazılırsa derleyici hata verir; sessizce
+yepyeni bir fonksiyon tanımlamış olmaktan korur.
+
+**Akıllı işaretçi (`std::unique_ptr`)** — İşaret ettiği nesnenin tek
+sahibidir ve kapsam dışına çıkınca onu **otomatik siler**. `delete` yazmayı
+unutma ihtimalini ortadan kaldırır — RAII'nin bellek yönetimine uygulanmış
+hâlidir.
+
 ### Sürü Durumu
 
 **Peer / peer table** — "Peer", sürüdeki başka bir düğüm demektir. Her düğüm,
