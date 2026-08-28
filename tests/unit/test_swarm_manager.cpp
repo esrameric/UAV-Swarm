@@ -887,3 +887,50 @@ TEST(CheckEmergency, AcilDurumGorevleriHerTurdaTekrarEklenmez)
     // Kuyruk büyümemeli; acil durum görevleri yalnızca ilk girişte eklenir.
     EXPECT_LE(yonetici.task_queue_size(), ilk_boyut);
 }
+
+// ---------------------------------------------------------------------------
+//  Görev tipi kaydı — Faz 6.4 entegrasyon testinin ortaya çıkardığı hata
+// ---------------------------------------------------------------------------
+
+TEST(TaskEngine, BitenGorevinArdindanSiradakininTipiKaydedilir)
+{
+    // HATA GEÇMİŞİ: on_enter/bayrak/tip-kaydı üçlüsü iki ayrı yerde elle
+    // yazılmıştı ve "görev bitti, sıradakine geç" dalında tip kaydı
+    // unutulmuştu. Sonuç: FailSafeTask bitip LandingTask başladığında
+    // current_task_type() FAIL_SAFE'te kalıyor, heartbeat yanlış görev
+    // bildiriyor ve geçiş log'a hiç yazılmıyordu.
+    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+
+    yonetici.push_task(std::make_unique<swarm::InitTask>());
+    yonetici.push_task(std::make_unique<swarm::HoverTask>(yonetici.drone_state(), 1000ms));
+
+    // InitTask tek turda hem başlar hem biter; aynı adımda HoverTask
+    // devralır. Asıl sınanan şey: devralan görevin tipi KAYDEDİLİYOR mu?
+    yonetici.task_engine_adimi(BASLANGIC);
+
+    EXPECT_EQ(yonetici.current_task_type(), swarm::TaskType::HOVER);
+    ASSERT_NE(yonetici.current_task(), nullptr);
+    EXPECT_EQ(yonetici.current_task()->get_type(), swarm::TaskType::HOVER);
+
+    // HoverTask süresi dolmadan tip değişmemeli.
+    yonetici.task_engine_adimi(BASLANGIC + 20ms);
+    EXPECT_EQ(yonetici.current_task_type(), swarm::TaskType::HOVER);
+}
+
+TEST(TaskEngine, AcilDurumdaFailSafeSonrasiLandingTipiKaydedilir)
+{
+    // Faz 6.4'ün birim test karşılığı: FailSafe -> Landing geçişi hem
+    // kuyrukta hem de kaydedilen tipte görünmeli.
+    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+
+    yonetici.on_heartbeat_received(peer_heartbeat_olustur(2, swarm::DroneRole::STRIKER),
+                                   BASLANGIC);
+    yonetici.update_peer_list(BASLANGIC + 4s);
+
+    yonetici.task_engine_adimi(BASLANGIC + 4s);
+    ASSERT_EQ(yonetici.current_task_type(), swarm::TaskType::FAIL_SAFE);
+
+    // FailSafe değerlendirme süresi (1 sn) dolunca iniş başlamalı.
+    yonetici.task_engine_adimi(BASLANGIC + 6s);
+    EXPECT_EQ(yonetici.current_task_type(), swarm::TaskType::LANDING);
+}

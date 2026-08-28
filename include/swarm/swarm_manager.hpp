@@ -274,6 +274,11 @@ private:
     // Aktif görev tipini kaydeder ve değiştiyse log'a yazar.
     void gorev_tipini_kaydet(TaskType yeni_tip);
 
+    // Kuyruğun başındaki görevi başlatır: on_enter() çağırır, bayrağı kurar
+    // ve tipi kaydeder. Bu üçü HER ZAMAN birlikte yapılmalı; ayrı ayrı
+    // yazıldıklarında biri unutulabiliyor.
+    void aktif_gorevi_baslat(TimePoint now);
+
     // Bekleyen consensus isteği varsa kuyruğu ona göre düzenler.
     // Yalnızca Task Engine thread'inden çağrılır.
     void bekleyen_consensus_istegini_uygula();

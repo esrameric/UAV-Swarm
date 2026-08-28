@@ -219,16 +219,13 @@ void SwarmManager::task_engine_adimi(TimePoint now)
         aktif_gorev_baslatildi_ = false;
     }
 
-    Task* aktif_gorev = task_queue_.front().get();
-
     // Bir görev aktif olduğunda on_enter() tam bir kez çağrılmalı.
     if (!aktif_gorev_baslatildi_)
     {
-        aktif_gorev->on_enter(now);
-        aktif_gorev_baslatildi_ = true;
-
-        gorev_tipini_kaydet(aktif_gorev->get_type());
+        aktif_gorevi_baslat(now);
     }
+
+    Task* aktif_gorev = task_queue_.front().get();
 
     // --- 4) Aktif görevi ilerlet ---------------------------------------------
     aktif_gorev->run(now);
@@ -282,11 +279,20 @@ void SwarmManager::task_engine_adimi(TimePoint now)
     }
 
     // Sıradaki görev varsa hemen başlat.
-    if (!task_queue_.empty())
+    aktif_gorevi_baslat(now);
+}
+
+void SwarmManager::aktif_gorevi_baslat(TimePoint now)
+{
+    if (task_queue_.empty())
     {
-        task_queue_.front()->on_enter(now);
-        aktif_gorev_baslatildi_ = true;
+        return;
     }
+
+    Task& gorev = *task_queue_.front();
+    gorev.on_enter(now);
+    aktif_gorev_baslatildi_ = true;
+    gorev_tipini_kaydet(gorev.get_type());
 }
 
 void SwarmManager::bekleyen_komutlari_isle(TimePoint now)
