@@ -285,6 +285,45 @@ parametresi alır. Böylece 3 saniyelik zaman aşımı, testte gerçekten 3 sani
 beklenerek değil, ileri bir zaman değeri verilerek anında ve deterministik
 olarak sınanabilir.
 
+### DDS (Data Distribution Service)
+
+**DDS** — Dağıtık sistemlerde veri paylaşımı için bir standart. Merkezî bir
+sunucu (broker) yoktur: düğümler birbirini ağ üzerinde kendiliğinden bulur ve
+doğrudan haberleşir. Bu proje eProsima'nın **Fast DDS** uygulamasını **saf
+C++ olarak, ROS 2 olmadan** kullanır.
+
+**DomainParticipant** — Bir düğümün DDS'teki karşılığı. Aynı `domain_id`'yi
+paylaşan participant'lar birbirini otomatik bulur; **farklı domain'dekiler
+aynı ağda olsalar bile birbirini görmez**. `ROS_DOMAIN_ID`'nin işlevi budur.
+
+**Topic** — İsimlendirilmiş bir veri akışı (`swarm/heartbeat`). Yayıncı ve
+abone aynı topic adı **ve uyumlu QoS** üzerinden buluşur.
+
+**DataWriter / DataReader** — Bir topic'e veri yazan ve okuyan uçlar.
+
+**Discovery (SPDP/SEDP)** — Participant'ların birbirini bulma mekanizması.
+SPDP participant'ları, SEDP ise onların writer/reader'larını duyurur. Bu
+sayede "drone'lar birbirinin IP'sini ağ üzerinden keşfeder" gereksinimi
+uygulama kodu hiç IP taşımadan karşılanır.
+
+**QoS (Quality of Service)** — "Bu akış nasıl davransın?" ayarları. Uyuşmayan
+QoS'ta yayıncı ve abone **hiç eşleşmez** ve veri akmaz — bu yüzden iki taraf
+tek bir yerden ayarlanır.
+
+**Dinleyici (listener) ve DDS thread'i** — Veri geldiğinde Fast DDS
+`on_data_available()`'ı **kendi thread'inden** çağırır. Bu yüzden geri
+çağırma içinde uzun iş yapılmaz; veri hemen kuyruğa bırakılır.
+
+**PIMPL ("pointer to implementation")** — Bir sınıfın gerçek üyelerini
+`.cpp` içindeki gizli bir yapıda tutma tekniği. Böylece başlık dosyasını
+`#include` edenlerin Fast DDS'i tanımasına gerek kalmaz ve derleme süresi
+kısalır.
+
+**Şablon (template)** — Aynı kodu farklı tipler için tekrar yazmamayı
+sağlayan mekanizma. Bu proje genel olarak template'lerden kaçınır, ama
+`DdsKanal` için gerekliydi: dört mesaj tipi için birebir aynı yüz satırı dört
+kez yazmak, tek bir şablondan çok daha zor okunurdu.
+
 ### Eşzamanlılık (Concurrency)
 
 **Thread (iş parçacığı)** — Bir program içinde eşzamanlı ilerleyen ayrı bir
