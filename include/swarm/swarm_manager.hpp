@@ -37,13 +37,17 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <vector>
 
+#include "Consensus.hpp"
 #include "Heartbeat.hpp"
 #include "SwarmEnums.hpp"
+#include "TaskAllocation.hpp"
 #include "Telemetry.hpp"
 #include "swarm/command.hpp"
 #include "swarm/drone_state.hpp"
 #include "swarm/peer_manager.hpp"
+#include "swarm/task/consensus_task.hpp"
 #include "swarm/task/task.hpp"
 
 namespace swarm {
@@ -158,9 +162,38 @@ public:
     // SwarmManager, DDS'i hiç tanımadan yayın yapabiliyor.
     using HeartbeatYayinlayici = std::function<void(const Heartbeat&)>;
     using TelemetriYayinlayici = std::function<void(const Telemetry&)>;
+    using ConsensusYayinlayici = std::function<void(const Consensus&)>;
+    using GorevEmriYayinlayici = std::function<void(const TaskAllocation&)>;
 
     void set_heartbeat_publisher(HeartbeatYayinlayici yayinlayici);
     void set_telemetry_publisher(TelemetriYayinlayici yayinlayici);
+    void set_consensus_publisher(ConsensusYayinlayici yayinlayici);
+    void set_task_allocation_publisher(GorevEmriYayinlayici yayinlayici);
+
+    // Reliable kanaldan mesaj yayınlar. Yayıncı bağlı değilse sessizce
+    // hiçbir şey yapmaz.
+    void publish_consensus(const Consensus& mesaj);
+    void publish_task_allocation(const TaskAllocation& emir);
+
+    // --- Sürü görüntüsü ------------------------------------------------------
+
+    // Şu an ONLINE olan drone'ların kimlikleri (peer_mutex korumalı).
+    std::vector<uint8_t> online_drone_ids() const;
+
+    // --- Son tamamlanan oylamanın sonucu -------------------------------------
+    //
+    // Task Engine bir ConsensusTask'ı kuyruktan çıkarırken sonucunu buraya
+    // yazar. Böylece GCS (veya başka bir gözlemci), silinmiş bir task'a
+    // işaretçi tutmadan sonucu öğrenebilir.
+    struct ConsensusSonucu
+    {
+        bool gecerli = false;          // hiç oylama tamamlandı mı?
+        uint32_t transaction_id = 0;
+        ConsensusResult sonuc = ConsensusResult::PENDING;
+        bool timeout_ile_iptal = false;
+    };
+
+    ConsensusSonucu last_consensus_result() const { return son_consensus_sonucu_; }
 
     // --- Komut kuyruğu (command_mutex_ korumalı) -----------------------------
 
@@ -204,6 +237,10 @@ private:
     // Acil durumda kuyruğu boşaltıp FailSafe -> Landing -> Idle dizisini
     // yerleştirir. Yalnızca acil duruma İLK girişte çalışır.
     void acil_durum_gorevlerini_yerlestir(TimePoint now);
+
+    // Bir drone, GCS'ten gelen consensus TEKLİFİNE kendi oyunu üretip
+    // yayınlar. Karar ölçütü şimdilik batarya seviyesidir.
+    void teklife_oy_ver(const Consensus& teklif);
 
     // --- Thread gövdeleri ----------------------------------------------------
 
@@ -251,6 +288,10 @@ private:
 
     HeartbeatYayinlayici heartbeat_yayinlayici_;
     TelemetriYayinlayici telemetri_yayinlayici_;
+    ConsensusYayinlayici consensus_yayinlayici_;
+    GorevEmriYayinlayici gorev_emri_yayinlayici_;
+
+    ConsensusSonucu son_consensus_sonucu_{};
 
     // --- Kimlik ve kendi durumu ----------------------------------------------
 

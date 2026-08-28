@@ -133,6 +133,10 @@ yapılmış?" sorusunun cevabını tek yerde bulması.
 | V17 | Acil durum tanımı | `check_emergency()` iki koşula bakar: kendi batarya **< %15**, veya **bir zamanlar duyulmuş** bir peer'ın susması | Plan `check_emergency()`'nin varlığını söylüyor ama içeriğini tanımlamıyordu. "Hiç duyulmamış" drone acil durum sayılmaz — Bölüm 2'deki non-blocking keşif stratejisiyle tutarlı olması için. |
 | V18 | Acil durum davranışı | Kuyruk boşaltılır, `FailSafeTask` → `LandingTask` yerleştirilir, sonra `IdleTask`'a düşülür | Faz 6.4'ün beklediği davranış: bir container durdurulduğunda `FailSafeTask` tetiklenir. |
 | V19 | Yayın kanalları | `SwarmManager` heartbeat/telemetri yayınını `std::function` üzerinden yapar | Faz 3'te FastDDS henüz yok. Bu katman sayesinde SwarmManager DDS'ten bağımsız test edilebiliyor; Faz 4'te `FastDDSWrapper` kanalları dolduruyor. |
+| V20 | **GCS'in Task Engine kapsamı** (Bölüm 9'daki açık nokta) | GCS drone'larla aynı `SwarmManager`/Fast DDS altyapısını kullanır ama derin bir Task hiyerarşisi **kullanmaz**. `GcsController` üç şey yapar: teklif et → oylamayı izle → oybirliğinde emri yayınla. | GCS uçmaz; ScoutSearch, GoToTarget, Landing gibi görevlerin GCS'te karşılığı yok. Oylama için ayrı bir motor da yazılmadı — sürünün geri kalanıyla **aynı `ConsensusTask` sınıfı** kullanılıyor (Bölüm 2). |
+| V21 | Teklif ile oy mesajının ayrımı | Aynı `Consensus` mesajı kullanılır; `vote == PENDING` ise **teklif**, `ACK`/`NACK` ise **oy**dur | Ayrı bir mesaj tipi eklemeye gerek kalmadı; `PENDING = 0` zaten "henüz oy yok" demek olduğu için anlam doğal olarak örtüşüyor. |
+| V22 | Drone'un oy ölçütü | Batarya `< %15` ise `NACK`, aksi hâlde `ACK` | Bölüm 3.6 "her drone kendi durumunu kontrol eder" diyor ama ölçütü tanımlamıyordu; `check_emergency()` ile aynı eşik kullanıldı. |
+| V23 | Oy verecek düğüm listesi | Teklif anında **ONLINE olan** drone'lar | Hiç ayağa kalkmamış bir drone'un oyunu beklemek, sürüyü her seferinde 5 saniyelik zaman aşımına mahkûm ederdi (Bölüm 2, non-blocking keşif). |
 
 ---
 

@@ -31,6 +31,9 @@ void SwarmManager::init(const SwarmConfig& config)
 
     // Yeniden yapılandırmada eski durumdan kalıntı kalmasın.
     kendi_durumu_ = DroneState{};
+    son_consensus_sonucu_ = ConsensusSonucu{};
+    aktif_gorev_baslatildi_ = false;
+    acil_durumda_ = false;
 
     {
         const std::lock_guard<std::mutex> kilit(peer_mutex_);
@@ -195,6 +198,16 @@ void SwarmManager::task_engine_adimi(TimePoint now)
     const ConsensusTask* consensus = dynamic_cast<const ConsensusTask*>(aktif_gorev);
     const bool gorev_iptal_edilmeli = (consensus != nullptr) && consensus->mission_should_abort();
 
+    if (consensus != nullptr)
+    {
+        // Sonucu saklıyoruz: task birazdan silinecek, ama GCS gibi
+        // gözlemcilerin sonucu öğrenmesi gerekiyor.
+        son_consensus_sonucu_.gecerli = true;
+        son_consensus_sonucu_.transaction_id = consensus->transaction_id();
+        son_consensus_sonucu_.sonuc = consensus->result();
+        son_consensus_sonucu_.timeout_ile_iptal = consensus->timeout_ile_iptal_oldu();
+    }
+
     aktif_gorev->on_exit();
     task_queue_.pop_front();
     aktif_gorev_baslatildi_ = false;
@@ -225,6 +238,24 @@ void SwarmManager::bekleyen_komutlari_isle(TimePoint now)
         {
             case CommandType::CONSENSUS:
             {
+                // Kendi yayınımızı geri duymuş olabiliriz.
+                if (komut.consensus.sender_id() == config_.drone_id)
+                {
+                    break;
+                }
+
+                // TEKLİF mi, OY mu? Teklifte vote alanı PENDING'dir
+                // ("henüz oy yok"); oy mesajlarında ACK veya NACK olur.
+                // Bir drone teklif aldığında kendi oyunu üretip yayınlar.
+                if (komut.consensus.vote() == Vote::PENDING)
+                {
+                    if (config_.node_type == NodeType::DRONE)
+                    {
+                        teklife_oy_ver(komut.consensus);
+                    }
+                    break;
+                }
+
                 // Oy yalnızca AKTİF ConsensusTask'ı ilgilendirir ve
                 // transaction_id'si tutmalıdır.
                 ConsensusTask* aktif_oylama = nullptr;
@@ -269,6 +300,23 @@ void SwarmManager::bekleyen_komutlari_isle(TimePoint now)
     }
 
     (void)now;  // şu an kullanılmıyor; imza tutarlılığı için duruyor
+}
+
+void SwarmManager::teklife_oy_ver(const Consensus& teklif)
+{
+    // Karar ölçütü: göreve çıkacak kadar bataryamız var mı?
+    // (Bölüm 3.6: "Her drone kendi durumunu kontrol eder.")
+    const Vote karar = (kendi_durumu_.battery < KRITIK_BATARYA_YUZDESI)
+            ? Vote::NACK
+            : Vote::ACK;
+
+    Consensus oy;
+    oy.transaction_id(teklif.transaction_id());
+    oy.sender_id(config_.drone_id);
+    oy.vote(karar);
+    oy.seq_num(teklif.seq_num());
+
+    publish_consensus(oy);
 }
 
 void SwarmManager::acil_durum_gorevlerini_yerlestir(TimePoint)
@@ -384,6 +432,38 @@ void SwarmManager::set_heartbeat_publisher(HeartbeatYayinlayici yayinlayici)
 void SwarmManager::set_telemetry_publisher(TelemetriYayinlayici yayinlayici)
 {
     telemetri_yayinlayici_ = std::move(yayinlayici);
+}
+
+void SwarmManager::set_consensus_publisher(ConsensusYayinlayici yayinlayici)
+{
+    consensus_yayinlayici_ = std::move(yayinlayici);
+}
+
+void SwarmManager::set_task_allocation_publisher(GorevEmriYayinlayici yayinlayici)
+{
+    gorev_emri_yayinlayici_ = std::move(yayinlayici);
+}
+
+void SwarmManager::publish_consensus(const Consensus& mesaj)
+{
+    if (consensus_yayinlayici_)
+    {
+        consensus_yayinlayici_(mesaj);
+    }
+}
+
+void SwarmManager::publish_task_allocation(const TaskAllocation& emir)
+{
+    if (gorev_emri_yayinlayici_)
+    {
+        gorev_emri_yayinlayici_(emir);
+    }
+}
+
+std::vector<uint8_t> SwarmManager::online_drone_ids() const
+{
+    const std::lock_guard<std::mutex> kilit(peer_mutex_);
+    return peer_table_.online_drone_ids();
 }
 
 // ---------------------------------------------------------------------------

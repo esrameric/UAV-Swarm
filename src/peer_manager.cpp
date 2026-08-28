@@ -147,6 +147,21 @@ std::size_t PeerManager::online_peer_count() const
     return sayac;
 }
 
+std::vector<uint8_t> PeerManager::online_drone_ids() const
+{
+    std::vector<uint8_t> kimlikler;
+    for (const auto& giris : peers_)
+    {
+        const PeerRecord& kayit = giris.second;
+        if (kayit.status == PeerStatus::ONLINE && kayit.info.node_type == NodeType::DRONE)
+        {
+            kimlikler.push_back(kayit.info.drone_id);
+        }
+    }
+    // std::map anahtara gore sirali oldugu icin liste de sirali cikar.
+    return kimlikler;
+}
+
 std::size_t PeerManager::offline_peer_count() const
 {
     std::size_t sayac = 0;

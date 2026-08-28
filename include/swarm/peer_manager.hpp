@@ -30,6 +30,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <vector>
 
 #include "Heartbeat.hpp"
 #include "Telemetry.hpp"
@@ -100,6 +101,10 @@ public:
     // heartbeat duyulan dugumler girdigi icin, buradaki her kayit "onceden
     // taniyorduk, simdi kayip" demektir - check_emergency() bunu kullanir.
     std::size_t offline_peer_count() const;
+
+    // Su an ONLINE olan DRONE'larin kimlikleri (GCS haric, kucukten buyuge).
+    // GCS oylamaya kimlerin katilmasi gerektigini bununla belirler.
+    std::vector<uint8_t> online_drone_ids() const;
 
 private:
     // std::map: anahtar-değer saklayan, anahtara göre sıralı tutan kap.

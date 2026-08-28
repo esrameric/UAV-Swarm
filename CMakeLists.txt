@@ -107,6 +107,7 @@ add_library(swarm_core STATIC
     src/peer_manager.cpp
     src/swarm_manager.cpp
     src/task_allocation_engine.cpp
+    src/gcs_controller.cpp
     src/task/motion.cpp
     src/task/init_task.cpp
     src/task/discovery_task.cpp
@@ -169,3 +170,4 @@ swarm_add_unit_test(test_peer_manager)
 swarm_add_unit_test(test_task)
 swarm_add_unit_test(test_tasks)
 swarm_add_unit_test(test_swarm_manager)
+swarm_add_unit_test(test_gcs_controller)
