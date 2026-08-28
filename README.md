@@ -156,6 +156,23 @@ sistemin tamamını gerçek koşullarında — burada 4 Docker container'ı ger�
 
 ### C++ Temelleri
 
+**`#pragma once`** — Bir başlık dosyasının, aynı derleme biriminde birden
+fazla kez `#include` edilse bile yalnızca bir kez işlenmesini sağlar. Aynı
+tipin iki kez tanımlanmasından doğan derleme hatalarını önler.
+
+**`struct` vs `class`** — C++'ta ikisi neredeyse aynıdır; tek fark varsayılan
+erişim seviyesidir (`struct`'ta `public`, `class`'ta `private`). Gelenek
+olarak sadece veri taşıyan tipler için `struct`, davranışı olan tipler için
+`class` kullanılır.
+
+**Default member initializer** — Bir üye alanın tanımında doğrudan `= 0` gibi
+bir başlangıç değeri vermek. Kurucu metotta ayrıca belirtilmezse alan bu
+değeri alır; böylece "ilklenmemiş çöp değer" okuma hatası baştan imkânsızlaşır.
+
+**`const` üye fonksiyon** — İmzanın sonundaki `const` (`bool is_in_swarm()
+const`), "bu fonksiyon nesneyi değiştirmez" sözüdür. Derleyici bu sözü zorlar
+ve fonksiyonun `const` nesneler üzerinde de çağrılabilmesini sağlar.
+
 **`#include`** — Başka bir dosyanın içeriğini bulunduğu yere kopyalayan
 önişlemci (preprocessor) komutu. Açılı parantez `<...>` sistem/kütüphane
 başlıkları, çift tırnak `"..."` projenin kendi başlıkları için kullanılır.
@@ -215,6 +232,30 @@ kaynağı `.idl` dosyasıdır.
 dizisine çevirmek (serialize) ve karşı tarafta geri nesneye dönüştürmek
 (deserialize). DDS bunu bizim yerimize yapar; `fastddsgen`'in ürettiği
 `...PubSubType` sınıfları tam olarak bu işi üstlenir.
+
+### Sürü Durumu
+
+**Peer / peer table** — "Peer", sürüdeki başka bir düğüm demektir. Her düğüm,
+duyduğu diğer düğümler için bir `PeerInfo` kaydı tutar; bu kayıtların
+tamamına peer table denir. Diske yazılmaz, ağa gönderilmez — tamamen yerel
+bir görüntüdür: "ben şu an sürüyü böyle görüyorum".
+
+**Sentinel değer** — Bir alanın "değer yok / geçersiz" hâlini anlatmak için
+ayrılan özel değer. `swarm_id` için sentinel **0**'dır. `-1` seçilmedi çünkü
+`swarm_id` işaretsiz (`uint8_t`) bir tiptir: `-1` ataması sessizce `255`'e
+döner ve sonraki `== -1` karşılaştırmaları C++'ın integer promotion kuralları
+yüzünden her zaman `false` verir.
+
+**`steady_clock` vs `system_clock`** — `system_clock` duvar saatidir; NTP
+düzeltmesiyle geri gidebilir. `steady_clock` ise monotoniktir, asla geri
+gitmez. "Ne kadar süre geçti?" sorusunun doğru aracı `steady_clock`'tur —
+heartbeat sessizliğini bu yüzden onunla ölçüyoruz.
+
+**Alıcı-taraflı saat (receiver-side timestamping)** — Bir peer'ın canlılığını,
+onun mesaja gömdüğü zaman damgasıyla değil, **bizim paketi aldığımız andaki
+kendi saatimizle** ölçmek. Container'ların duvar saatleri senkron olmayabilir;
+alıcı-taraflı ölçüm, ağ gecikmesini "sessizlik" ile karıştırma riskini ortadan
+kaldırır.
 
 ### Ağ ve Konteyner
 

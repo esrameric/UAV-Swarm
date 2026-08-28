@@ -124,9 +124,13 @@ function(swarm_add_unit_test test_name)
         GTest::gtest GTest::gtest_main
         swarm_msgs)
 
+    # Projenin kendi baslik dosyalari: #include "swarm/..." seklinde yazilabilsin.
+    target_include_directories(${test_name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
     add_test(NAME ${test_name} COMMAND ${test_name})
 endfunction()
 
 # --- Kayıtlı birim testleri --------------------------------------------------
 swarm_add_unit_test(test_build_environment)
 swarm_add_unit_test(test_message_types)
+swarm_add_unit_test(test_peer_info)
