@@ -71,11 +71,19 @@ DOCKER="sudo docker" bash tools/verify_multicast.sh
 
 ## Derleme ve Test
 
+Fast DDS ortamda olmalı (`source tools/fastdds_env.sh`), aksi halde CMake
+`find_package(fastdds)` adımında durur.
+
 ```bash
+source tools/fastdds_env.sh
 cmake -B build -S .
 cmake --build build -j3
 ctest --test-dir build --output-on-failure
 ```
+
+IDL dosyaları derleme sırasında `fastddsgen` ile otomatik olarak C++'a
+çevrilir (`build/generated/` altına). Bir `.idl` dosyasını değiştirince
+sonraki derlemede kod kendiliğinden yeniden üretilir.
 
 ## Dizin Yapısı
 
@@ -184,6 +192,29 @@ eski ve yeni sürüm birbirini yanlış anlar.
 **Modül / namespace** — IDL'deki `module swarm { ... }`, C++ tarafında
 `namespace swarm { ... }` olur. İsimleri bir çatı altında toplayarak farklı
 kütüphanelerdeki aynı isimli tiplerin çakışmasını önler: `swarm::Heartbeat`.
+
+### Derleme Kavramları
+
+**Kütüphane (library) hedefi** — Tek başına çalışmayan, başka programların
+bağlanıp kullandığı derlenmiş kod paketi. `STATIC` kütüphane, kendisine
+bağlanan programın **içine kopyalanır** (çalışırken ayrı bir dosya taşımak
+gerekmez); `SHARED` (`.so`) ise çalışma anında ayrıca yüklenir.
+
+**`PUBLIC` / `PRIVATE` bağlama** — CMake'te bir kütüphanenin bağımlılığı
+`PUBLIC` ise, o kütüphaneye bağlanan herkes bağımlılığı da otomatik görür;
+`PRIVATE` ise bağımlılık yalnızca kütüphanenin kendi içinde kalır. `swarm_msgs`
+Fast DDS'e `PUBLIC` bağlanır, çünkü üretilen başlıklar Fast DDS tiplerini
+kullanıcının koduna da taşır.
+
+**Kod üretimi (code generation)** — Kaynak kodun elle değil, başka bir
+tanımdan otomatik üretilmesi. Burada `.idl` dosyaları derleme sırasında
+`fastddsgen` ile C++'a çevrilir. Üretilen kod depoya konmaz; tek doğruluk
+kaynağı `.idl` dosyasıdır.
+
+**Serileştirme / deserileştirme** — Bir nesneyi ağda taşınabilecek bayt
+dizisine çevirmek (serialize) ve karşı tarafta geri nesneye dönüştürmek
+(deserialize). DDS bunu bizim yerimize yapar; `fastddsgen`'in ürettiği
+`...PubSubType` sınıfları tam olarak bu işi üstlenir.
 
 ### Ağ ve Konteyner
 

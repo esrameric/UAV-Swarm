@@ -36,6 +36,68 @@ endif()
 add_compile_options(-Wall -Wextra -Wpedantic)
 
 # ============================================================================
+#  Fast DDS ve IDL'den C++ uretimi
+# ============================================================================
+#
+# ONEMLI: Bu adimlarin calismasi icin Fast DDS'in ortamda olmasi gerekir:
+#     source tools/fastdds_env.sh
+# (Kurulum icin: bash tools/install_fastdds.sh)
+
+find_package(fastcdr 2 REQUIRED)   # serilestirme kutuphanesi
+find_package(fastdds 3 REQUIRED)   # DDS'in kendisi
+
+# fastddsgen: .idl -> C++ ceviren Java aracı. Derleme sirasinda cagrilacak.
+find_program(FASTDDSGEN_EXECUTABLE NAMES fastddsgen REQUIRED)
+
+# Uretilen kod depoya commit EDILMEZ (bkz. README varsayim V4); her derlemede
+# build dizini altinda yeniden uretilir. Boylece .idl ile uretilen kodun
+# birbirinden ayrisma (drift) ihtimali kalmaz.
+set(SWARM_GENERATED_DIR ${CMAKE_BINARY_DIR}/generated)
+
+# SwarmEnums once gelmeli: digerleri onu #include ediyor.
+set(SWARM_IDL_NAMES SwarmEnums Heartbeat Telemetry TaskAllocation Consensus)
+
+foreach(idl_name IN LISTS SWARM_IDL_NAMES)
+    list(APPEND SWARM_IDL_FILES     ${CMAKE_CURRENT_SOURCE_DIR}/idl/${idl_name}.idl)
+    list(APPEND SWARM_IDL_BASENAMES ${idl_name}.idl)
+    # fastddsgen her .idl icin bu iki .cxx dosyasini uretir:
+    list(APPEND SWARM_GENERATED_SOURCES
+        ${SWARM_GENERATED_DIR}/${idl_name}PubSubTypes.cxx
+        ${SWARM_GENERATED_DIR}/${idl_name}TypeObjectSupport.cxx)
+    list(APPEND SWARM_GENERATED_HEADERS ${SWARM_GENERATED_DIR}/${idl_name}.hpp)
+endforeach()
+
+# add_custom_command(OUTPUT ...): "su dosyalari uretmek icin su komutu calistir"
+# der. CMake, OUTPUT dosyalari DEPENDS dosyalarindan eskiyse komutu yeniden
+# calistirir; yani bir .idl'i degistirince C++ otomatik yeniden uretilir.
+#
+# WORKING_DIRECTORY olarak idl/ secildi: fastddsgen'e dosyalari kisa isimleriyle
+# verince ciktiyi -d dizinine duz (alt klasorsuz) yaziyor ve #include'lar
+# ayni dizinde cozuluyor.
+add_custom_command(
+    OUTPUT  ${SWARM_GENERATED_SOURCES} ${SWARM_GENERATED_HEADERS}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${SWARM_GENERATED_DIR}
+    COMMAND ${FASTDDSGEN_EXECUTABLE} -replace -d ${SWARM_GENERATED_DIR} ${SWARM_IDL_BASENAMES}
+    DEPENDS ${SWARM_IDL_FILES}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/idl
+    COMMENT "IDL -> C++ uretiliyor (fastddsgen)"
+    VERBATIM)
+
+# Uretilen mesaj tiplerini tek bir kutuphane hedefinde topluyoruz.
+# STATIC: kod, kullanan her hedefin icine kopyalanir (ayri bir .so dosyasi
+# tasimak zorunda kalmayiz).
+add_library(swarm_msgs STATIC ${SWARM_GENERATED_SOURCES})
+
+# PUBLIC: bu kutuphaneye baglanan herkes de bu include dizinini ve
+# kutuphaneleri otomatik gorur. (PRIVATE olsaydi sadece swarm_msgs gorurdu.)
+target_include_directories(swarm_msgs PUBLIC ${SWARM_GENERATED_DIR})
+target_link_libraries(swarm_msgs PUBLIC fastdds fastcdr)
+
+# Uretilen kod bize ait degil; -Wall -Wextra uyarilarini onun icin kapatiyoruz
+# ki kendi kodumuzun uyarilari kalabalikta kaybolmasin.
+target_compile_options(swarm_msgs PRIVATE -w)
+
+# ============================================================================
 #  Testler (GoogleTest + CTest)
 # ============================================================================
 #
@@ -58,10 +120,13 @@ function(swarm_add_unit_test test_name)
 
     # GTest::gtest_main, `int main()` fonksiyonunu bizim yerimize sağlar;
     # bu sayede test dosyalarında main yazmamıza gerek kalmaz.
-    target_link_libraries(${test_name} PRIVATE GTest::gtest GTest::gtest_main)
+    target_link_libraries(${test_name} PRIVATE
+        GTest::gtest GTest::gtest_main
+        swarm_msgs)
 
     add_test(NAME ${test_name} COMMAND ${test_name})
 endfunction()
 
 # --- Kayıtlı birim testleri --------------------------------------------------
 swarm_add_unit_test(test_build_environment)
+swarm_add_unit_test(test_message_types)
