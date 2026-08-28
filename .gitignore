@@ -1,0 +1,14 @@
+# Derleme çıktıları
+build/
+install/
+log/
+
+# fastddsgen tarafından IDL'lerden üretilen C++ kaynakları
+# (üretilmiş kod depoda tutulmaz; `cmake` derleme sırasında yeniden üretir)
+generated/
+
+# Editör / işletim sistemi artıkları
+.vscode/
+.idea/
+*.swp
+.DS_Store

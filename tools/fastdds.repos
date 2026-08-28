@@ -1,0 +1,26 @@
+# Fast DDS bağımlılıklarının PİNLENMİŞ sürümleri (Faz 0.1).
+#
+# Bu dosya, eProsima'nın Fast DDS v3.6.2 etiketiyle birlikte yayınladığı
+# resmi `fastdds.repos` dosyasının birebir kopyasıdır. Sürümlerin sabit
+# (pinned) olması şart: hem geliştirme makinesi hem de 4 Docker container
+# aynı Fast DDS sürümüyle derlenmeli, aksi halde DDS tel formatı (wire
+# protocol) uyuşmazlıkları ortaya çıkabilir.
+#
+# Kaynak: https://raw.githubusercontent.com/eProsima/Fast-DDS/v3.6.2/fastdds.repos
+repositories:
+    foonathan_memory_vendor:
+        type: git
+        url: https://github.com/eProsima/foonathan_memory_vendor.git
+        version: v1.4.1
+    fastcdr:
+        type: git
+        url: https://github.com/eProsima/Fast-CDR.git
+        version: v2.3.6
+    fastdds:
+        type: git
+        url: https://github.com/eProsima/Fast-DDS.git
+        version: v3.6.2
+    fastddsgen:
+        type: git
+        url: https://github.com/eProsima/Fast-DDS-Gen.git
+        version: v4.3.0
