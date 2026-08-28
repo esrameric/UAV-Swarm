@@ -64,6 +64,17 @@ struct SwarmConfig
     NodeType node_type = NodeType::DRONE;
     DroneRole role = DroneRole::SCOUT;          // yalnızca DRONE için anlamlı
     uint32_t domain_id = 42;                    // DDS domain (ROS_DOMAIN_ID)
+
+    // ARIZA ENJEKSİYONU (fault injection) — üretim davranışı değil, test
+    // aracı. Açıkken drone consensus teklifine hiç cevap VERMEZ; yani
+    // "ayakta ama sessiz" bir düğüm simüle edilir.
+    //
+    // Neden gerekli: Faz 6.3'ün doğrulaması gereken 5 saniyelik zaman aşımı
+    // senaryosu başka türlü kurulamıyor. Bir container'ı durdurmak veya
+    // duraklatmak işe yaramaz — heartbeat'i kesildiği anda (3 sn) diğer
+    // düğümler onu OFFLINE sayıp oy verecekler listesinden çıkarır ve
+    // oylama zaman aşımına hiç düşmez.
+    bool fault_silent_consensus = false;
 };
 
 class SwarmManager

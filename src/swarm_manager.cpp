@@ -376,6 +376,16 @@ void SwarmManager::gorev_tipini_kaydet(TaskType yeni_tip)
 
 void SwarmManager::teklife_oy_ver(const Consensus& teklif)
 {
+    // Arıza enjeksiyonu: "ayakta ama sessiz" düğüm simülasyonu (bkz.
+    // SwarmConfig::fault_silent_consensus). Heartbeat yayınına devam
+    // ediyoruz — yani diğerleri bizi ONLINE görüyor — ama oy vermiyoruz.
+    if (config_.fault_silent_consensus)
+    {
+        log("consensus", "ARIZA SIMULASYONU: tx=" +
+                         std::to_string(teklif.transaction_id()) + " icin oy VERILMIYOR");
+        return;
+    }
+
     // Karar ölçütü: göreve çıkacak kadar bataryamız var mı?
     // (Bölüm 3.6: "Her drone kendi durumunu kontrol eder.")
     const Vote karar = (kendi_durumu_.battery < KRITIK_BATARYA_YUZDESI)
@@ -602,7 +612,23 @@ bool SwarmManager::on_telemetry_received(const Telemetry& telemetry, TimePoint n
     }
 
     const std::lock_guard<std::mutex> kilit(peer_mutex_);
-    return peer_table_.on_telemetry(telemetry, now);
+
+    // Sayaç sıfırdaysa bu, o peer'dan alınan İLK telemetri paketidir
+    // (ya hiç duymamıştık ya da restart sonrası sayaç sıfırlanmıştı).
+    const PeerRecord* kayit = peer_table_.find(telemetry.drone_id());
+    const bool ilk_paket = (kayit != nullptr) && (kayit->info.last_seen_seq == 0);
+
+    const bool kabul_edildi = peer_table_.on_telemetry(telemetry, now);
+
+    if (kabul_edildi && ilk_paket)
+    {
+        // Sadece akış başlarken bir kez: 20-50 Hz'lik akışı loglamak
+        // çıktıyı okunamaz hale getirirdi.
+        log("telemetry", "id=" + std::to_string(telemetry.drone_id()) +
+                         " akisi basladi seq=" + std::to_string(telemetry.seq_num()));
+    }
+
+    return kabul_edildi;
 }
 
 // ---------------------------------------------------------------------------

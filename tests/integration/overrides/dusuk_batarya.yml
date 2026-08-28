@@ -1,0 +1,9 @@
+# Faz 6.3 — NACK senaryosu
+#
+# drone_striker_1'in bataryası kritik seviyenin (%15) altında başlar; bu drone
+# consensus teklifine NACK ile cevap verir. 2PC oybirliği gerektirdiği için
+# tek bir NACK tüm görevi iptal ettirir.
+services:
+  drone_striker_1:
+    environment:
+      INITIAL_BATTERY: 5

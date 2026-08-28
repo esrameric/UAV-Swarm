@@ -190,3 +190,36 @@ TEST(ConfigFromEnv, BosDegiskenVarsayilanSayilir)
     ASSERT_TRUE(sonuc.basarili) << sonuc.hata;
     EXPECT_EQ(sonuc.config.domain_id, 42u);
 }
+
+TEST(ConfigFromEnv, AriziEnjeksiyonuVarsayilanKapali)
+{
+    ortami_temizle();
+
+    const swarm::ConfigSonucu sonuc = swarm::config_ortamdan_oku();
+
+    ASSERT_TRUE(sonuc.basarili) << sonuc.hata;
+    EXPECT_FALSE(sonuc.config.fault_silent_consensus);
+}
+
+TEST(ConfigFromEnv, AriziEnjeksiyonuAcilabilir)
+{
+    // Faz 6.3: "ayakta ama sessiz" drone senaryosu bu değişkenle kuruluyor.
+    ortami_temizle();
+    ayarla("FAULT_SILENT_CONSENSUS", "1");
+
+    const swarm::ConfigSonucu sonuc = swarm::config_ortamdan_oku();
+
+    ASSERT_TRUE(sonuc.basarili) << sonuc.hata;
+    EXPECT_TRUE(sonuc.config.fault_silent_consensus);
+}
+
+TEST(ConfigFromEnv, GecersizAriziEnjeksiyonuDegeriHataVerir)
+{
+    ortami_temizle();
+    ayarla("FAULT_SILENT_CONSENSUS", "7");
+
+    const swarm::ConfigSonucu sonuc = swarm::config_ortamdan_oku();
+
+    EXPECT_FALSE(sonuc.basarili);
+    EXPECT_NE(sonuc.hata.find("FAULT_SILENT_CONSENSUS"), std::string::npos);
+}

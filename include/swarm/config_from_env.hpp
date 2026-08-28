@@ -6,6 +6,7 @@
 //      ROLE             SCOUT | STRIKER      (varsayılan: SCOUT)
 //      ROS_DOMAIN_ID    DDS domain numarası  (varsayılan: 42)
 //      INITIAL_BATTERY  0-100                (varsayılan: 100)
+//      FAULT_SILENT_CONSENSUS  0 | 1         (varsayılan: 0)
 //
 //  Neden ayrı bir dosya? Bu mantık main.cpp içinde olsaydı test edilemezdi:
 //  main() bir birim testinden çağrılamaz. Ayrıca hata durumunda burada

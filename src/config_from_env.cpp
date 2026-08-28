@@ -74,6 +74,7 @@ ConfigSonucu config_ortamdan_oku()
         {"DRONE_ID", 0, 255, 0},
         {"ROS_DOMAIN_ID", 42, 232, 0},      // DDS domain üst sınırı 232
         {"INITIAL_BATTERY", 100, 100, 0},
+        {"FAULT_SILENT_CONSENSUS", 0, 1, 0},
     };
 
     for (SayisalAlan& alan : alanlar)
@@ -107,6 +108,7 @@ ConfigSonucu config_ortamdan_oku()
     sonuc.config.drone_id = static_cast<uint8_t>(alanlar[0].deger);
     sonuc.config.domain_id = static_cast<uint32_t>(alanlar[1].deger);
     sonuc.baslangic_bataryasi = static_cast<uint8_t>(alanlar[2].deger);
+    sonuc.config.fault_silent_consensus = (alanlar[3].deger == 1);
 
     sonuc.basarili = true;
     return sonuc;

@@ -1,0 +1,13 @@
+# Faz 6.3 — "ayakta ama sessiz" drone senaryosu
+#
+# drone_striker_2 heartbeat yayınlamaya devam eder (yani GCS onu ONLINE görüp
+# oy verecekler listesine ekler) ama consensus teklifine hiç cevap vermez.
+# Böylece 5 saniyelik zaman aşımı yolu tetiklenir.
+#
+# Container'ı durdurmak/duraklatmak bu işi GÖRMEZ: heartbeat'i kesildiği anda
+# (3 sn) diğer düğümler onu OFFLINE sayıp listeden çıkarır ve oylama zaman
+# aşımına hiç düşmez.
+services:
+  drone_striker_2:
+    environment:
+      FAULT_SILENT_CONSENSUS: 1
