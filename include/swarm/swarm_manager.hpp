@@ -109,6 +109,13 @@ public:
     DroneState& drone_state() { return kendi_durumu_; }
     const DroneState& drone_state() const { return kendi_durumu_; }
 
+    // --- Consensus turu isteği (thread-safe) ---------------------------------
+    //
+    // Başka bir thread'den (GCS'in ana döngüsü) yeni bir oylama başlatmak
+    // için kullanılır. Görev kuyruğuna DOKUNMAZ; yalnızca bir istek bırakır.
+    // İsteği alıp kuyruğu düzenlemek Task Engine thread'inin işidir.
+    void request_consensus(uint32_t transaction_id, std::vector<uint8_t> oy_verenler);
+
     // --- Task Engine (Thread 3) ----------------------------------------------
 
     // Task Engine'in TEK turu. Thread 3 bunu döngüde çağırır.
@@ -195,6 +202,11 @@ public:
 
     ConsensusSonucu last_consensus_result() const { return son_consensus_sonucu_; }
 
+    // Aktif görevin tipi. `atomic` olduğu için başka thread'lerden (örn.
+    // ana thread'in log döngüsü) güvenle okunabilir — task_queue_'nun
+    // kendisine yalnızca Task Engine thread'i dokunabilir.
+    TaskType current_task_type() const { return aktif_gorev_tipi_; }
+
     // --- Komut kuyruğu (command_mutex_ korumalı) -----------------------------
 
     // Ağdan gelen bir komutu kuyruğa ekler. Thread 2 çağırır.
@@ -213,6 +225,12 @@ public:
     std::size_t online_peer_count() const;
 
     // --- Görev kuyruğu (yalnızca Thread 3) -----------------------------------
+    //
+    // DİKKAT: Aşağıdaki üç fonksiyon KİLİTSİZDİR. Yalnızca Task Engine
+    // thread'inin içinden ya da run() çağrılmadan önce (kurulum ve testler)
+    // güvenle kullanılabilir. Çalışan bir düğümde başka bir thread'den
+    // çağrılırlarsa veri yarışı olur — nitekim GCS'in görev başlatması
+    // bu yüzden request_consensus() üzerinden yapılıyor.
 
     // Kuyruğun SONUNA bir görev ekler.
     void push_task(std::unique_ptr<Task> gorev);
@@ -241,6 +259,13 @@ private:
     // Bir drone, GCS'ten gelen consensus TEKLİFİNE kendi oyunu üretip
     // yayınlar. Karar ölçütü şimdilik batarya seviyesidir.
     void teklife_oy_ver(const Consensus& teklif);
+
+    // Aktif görev tipini kaydeder ve değiştiyse log'a yazar.
+    void gorev_tipini_kaydet(TaskType yeni_tip);
+
+    // Bekleyen consensus isteği varsa kuyruğu ona göre düzenler.
+    // Yalnızca Task Engine thread'inden çağrılır.
+    void bekleyen_consensus_istegini_uygula();
 
     // --- Thread gövdeleri ----------------------------------------------------
 
@@ -292,6 +317,18 @@ private:
     GorevEmriYayinlayici gorev_emri_yayinlayici_;
 
     ConsensusSonucu son_consensus_sonucu_{};
+
+    std::atomic<TaskType> aktif_gorev_tipi_{TaskType::INIT};
+
+    // Bekleyen consensus isteği (istek_mutex_ korumalı).
+    struct ConsensusIstegi
+    {
+        bool var = false;
+        uint32_t transaction_id = 0;
+        std::vector<uint8_t> oy_verenler;
+    };
+    mutable std::mutex istek_mutex_;
+    ConsensusIstegi bekleyen_consensus_istegi_;
 
     // --- Kimlik ve kendi durumu ----------------------------------------------
 

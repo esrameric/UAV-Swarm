@@ -35,8 +35,11 @@ uint32_t GcsController::gorev_teklif_et(
 
     // Oylamayı sürünün geri kalanıyla AYNI ConsensusTask sınıfı yürütür;
     // GCS'e özel ayrı bir consensus motoru yazılmadı (Bölüm 2).
-    yonetici_.clear_task_queue();
-    yonetici_.push_task(std::make_unique<ConsensusTask>(aktif_transaction_id_, oy_verenler));
+    //
+    // Kuyruğa DOĞRUDAN dokunmuyoruz: GcsController ana thread'den çalışıyor,
+    // görev kuyruğu ise Task Engine thread'ine ait. İstek bırakıyoruz,
+    // kuyruğu o düzenliyor.
+    yonetici_.request_consensus(aktif_transaction_id_, oy_verenler);
 
     // Teklif mesajı: vote alanı PENDING'dir — bu, mesajın bir OY değil
     // TEKLİF olduğunu gösterir (Bölüm 3.6).
@@ -52,6 +55,16 @@ uint32_t GcsController::gorev_teklif_et(
 
     (void)now;
     return aktif_transaction_id_;
+}
+
+void GcsController::sonucu_tuket()
+{
+    // Terminal durumu bir kez okuduktan sonra BOSTA'ya dönüyoruz; aksi halde
+    // ana döngü aynı sonucu her turda tekrar tekrar raporlardı.
+    if (durum_ == Durum::GOREV_YAYINLANDI || durum_ == Durum::IPTAL)
+    {
+        durum_ = Durum::BOSTA;
+    }
 }
 
 void GcsController::adim(TimePoint)

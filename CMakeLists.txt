@@ -109,6 +109,7 @@ add_library(swarm_core STATIC
     src/task_allocation_engine.cpp
     src/gcs_controller.cpp
     src/fastdds_wrapper.cpp
+    src/config_from_env.cpp
     src/task/motion.cpp
     src/task/init_task.cpp
     src/task/discovery_task.cpp
@@ -130,6 +131,16 @@ find_package(Threads REQUIRED)
 # PUBLIC link: swarm_core'un baslik dosyalari IDL tiplerini (Heartbeat vb.)
 # disariya tasidigi icin bagimlilik da disariya acilmali.
 target_link_libraries(swarm_core PUBLIC swarm_msgs Threads::Threads)
+
+# ============================================================================
+#  Calistirilabilir: swarm_node
+# ============================================================================
+#
+# TEK BINARY, DORT DUGUM. Ayni calistirilabilir hem GCS hem uc drone olarak
+# calisir; farki ortam degiskenleri belirler (Bolum 4). Boylece tek bir Docker
+# image uretilip dort container olarak calistirilabiliyor.
+add_executable(swarm_node src/main.cpp)
+target_link_libraries(swarm_node PRIVATE swarm_core)
 
 # ============================================================================
 #  Testler (GoogleTest + CTest)
@@ -173,3 +184,4 @@ swarm_add_unit_test(test_tasks)
 swarm_add_unit_test(test_swarm_manager)
 swarm_add_unit_test(test_gcs_controller)
 swarm_add_unit_test(test_fastdds_wrapper)
+swarm_add_unit_test(test_config_from_env)

@@ -85,6 +85,41 @@ IDL dosyaları derleme sırasında `fastddsgen` ile otomatik olarak C++'a
 çevrilir (`build/generated/` altına). Bir `.idl` dosyasını değiştirince
 sonraki derlemede kod kendiliğinden yeniden üretilir.
 
+## Çalıştırma
+
+Tek bir çalıştırılabilir (`swarm_node`) hem GCS hem de üç drone olarak
+çalışır; farkı ortam değişkenleri belirler:
+
+| Değişken | Değerler | Varsayılan |
+|---|---|---|
+| `NODE_TYPE` | `DRONE` \| `GCS` | `DRONE` |
+| `DRONE_ID` | 0–255 (GCS = 0) | `0` |
+| `ROLE` | `SCOUT` \| `STRIKER` (yalnızca `DRONE` için) | `SCOUT` |
+| `ROS_DOMAIN_ID` | 0–232 | `42` |
+| `INITIAL_BATTERY` | 0–100 | `100` |
+
+Yerelde dört düğümü ayrı terminallerde çalıştırmak için:
+
+```bash
+NODE_TYPE=DRONE ROLE=SCOUT   DRONE_ID=1 ./build/swarm_node
+```
+
+```bash
+NODE_TYPE=DRONE ROLE=STRIKER DRONE_ID=2 ./build/swarm_node
+```
+
+```bash
+NODE_TYPE=DRONE ROLE=STRIKER DRONE_ID=3 ./build/swarm_node
+```
+
+```bash
+NODE_TYPE=GCS DRONE_ID=0 ./build/swarm_node
+```
+
+GCS 8 saniye keşif bekledikten sonra sırayla iki görev teklif eder; drone'lar
+oy verir, oybirliği sağlanırsa görev emri yayınlanır ve roller kendi
+görevlerine geçer.
+
 ## Dizin Yapısı
 
 ```
@@ -138,6 +173,9 @@ yapılmış?" sorusunun cevabını tek yerde bulması.
 | V22 | Drone'un oy ölçütü | Batarya `< %15` ise `NACK`, aksi hâlde `ACK` | Bölüm 3.6 "her drone kendi durumunu kontrol eder" diyor ama ölçütü tanımlamıyordu; `check_emergency()` ile aynı eşik kullanıldı. |
 | V23 | Oy verecek düğüm listesi | Teklif anında **ONLINE olan** drone'lar | Hiç ayağa kalkmamış bir drone'un oyunu beklemek, sürüyü her seferinde 5 saniyelik zaman aşımına mahkûm ederdi (Bölüm 2, non-blocking keşif). |
 | V24 | **`task_alloc`/`consensus` için "TCP"** | Teslim garantisi **QoS ile** sağlanıyor (`RELIABLE` + `TRANSIENT_LOCAL`); taşıma katmanı participant'ın varsayılan UDP taşıyıcısı | Bölüm 3.4 bu iki topic için "TCP" diyor. DDS'te **taşıma katmanı participant seviyesindedir, topic seviyesinde seçilemez** — bir DomainParticipant'ın bazı topic'lerini TCP, bazılarını UDP yapmak mümkün değil. Planın istediği asıl şey (%100 ulaştırma garantisi) `RELIABLE` QoS ile birebir karşılanıyor ve testle doğrulanıyor. Gerçekten TCP taşıyıcı isteniyorsa `DomainParticipantQos`'a bir `TCPv4TransportDescriptor` eklenip initial peers elle tanımlanmalı; bu, multicast tabanlı otomatik keşfi devre dışı bırakır ve Bölüm 2'deki "IP'leri ağ üzerinden keşfet" gereksinimiyle çelişir. |
+| V25 | GCS görev senaryosu | GCS, keşif için 8 sn bekler; sonra sırayla **iki** görev teklif eder: `SCOUT` → (80, 40), ardından `STRIKER` → (150, −60) | Plan GCS'in görev emri vereceğini söylüyor ama içeriğini tanımlamıyordu. İki görev, heterojen rol ayrımının (Faz 6.6) gerçek bir akışta gözlemlenmesini sağlıyor. |
+| V26 | `INITIAL_BATTERY` env değişkeni | Düğümün başlangıç bataryası (varsayılan 100) | Faz 6.3'teki NACK senaryosunu kurmanın yolu: bataryası kritik olan drone consensus'ta `NACK` verir. Planda yok, ama 6.3'ün test edilebilmesi için gerekli. |
+| V27 | Görev kuyruğuna erişim | GCS oylama başlatmak için kuyruğa **doğrudan dokunmaz**; `SwarmManager::request_consensus()` ile istek bırakır, kuyruğu Task Engine düzenler | İlk uygulamada `GcsController` kuyruğa ana thread'den dokunuyordu — bu, "task_queue'ya yalnızca Thread 3 dokunur" tasarımını bozan gerçek bir veri yarışıydı ve `on_enter()` atlandığı için oylamayı anında zaman aşımına düşürüyordu. |
 
 ---
 

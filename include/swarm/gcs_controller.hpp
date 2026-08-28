@@ -53,6 +53,11 @@ public:
     // görev emrini yayınlar, ABORTED ise görevi iptal eder.
     void adim(TimePoint now);
 
+    // Terminal durumu (GOREV_YAYINLANDI / IPTAL) okunduktan sonra çağrılır;
+    // durumu BOSTA'ya çeker. Olmasaydı ana döngü aynı sonucu her turda
+    // tekrar tekrar raporlardı.
+    void sonucu_tuket();
+
     Durum durum() const { return durum_; }
     uint32_t aktif_transaction_id() const { return aktif_transaction_id_; }
 
