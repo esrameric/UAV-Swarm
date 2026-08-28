@@ -30,6 +30,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -37,7 +38,9 @@
 #include <mutex>
 #include <thread>
 
+#include "Heartbeat.hpp"
 #include "SwarmEnums.hpp"
+#include "Telemetry.hpp"
 #include "swarm/command.hpp"
 #include "swarm/drone_state.hpp"
 #include "swarm/peer_manager.hpp"
@@ -121,7 +124,43 @@ public:
     void bekleyen_komutlari_isle(TimePoint now);
 
     // Acil durum var mı? (Bölüm 3.2 — her turda ilk çalışan kontrol)
+    //
+    // İki koşuldan biri sağlanırsa acil durum vardır:
+    //   1) Kendi bataryamız kritik seviyenin altına indi.
+    //   2) Bir zamanlar duyduğumuz bir peer artık susuyor (kayıp düğüm).
     bool check_emergency(TimePoint now) const;
+
+    static constexpr uint8_t KRITIK_BATARYA_YUZDESI = 15;
+
+    // --- Ağ arayüzü (Thread 1 ve Faz 4'teki DDS okuyucuları) -----------------
+
+    // Kendi durumunu (heartbeat + telemetri) yayınlar.
+    void send_self_status(TimePoint now);
+
+    // Peer'ların canlılık durumunu tazeler: zaman aşımına uğrayanları
+    // OFFLINE'a çeker.
+    void update_peer_list(TimePoint now);
+
+    // Ağdan bir heartbeat/telemetri geldiğinde çağrılır (peer_mutex korumalı).
+    void on_heartbeat_received(const Heartbeat& heartbeat, TimePoint now);
+    bool on_telemetry_received(const Telemetry& telemetry, TimePoint now);
+
+    // Şu an yayınlanacak mesajları üretir. Yayıncı bağlı olmasa da
+    // çağrılabilir; testler ve GCS izleme bunları doğrudan kullanır.
+    Heartbeat build_heartbeat() const;
+    Telemetry build_telemetry(TimePoint now);
+
+    // Yayın kanalları. Faz 4'te FastDDSWrapper bunları dolduracak; boş
+    // bırakılırlarsa send_self_status() mesajı üretir ama kimseye vermez.
+    //
+    // std::function: "bir fonksiyonu değişkende saklamanın" yolu. Buraya
+    // lambda, serbest fonksiyon veya üye fonksiyon bağlanabilir. Sayesinde
+    // SwarmManager, DDS'i hiç tanımadan yayın yapabiliyor.
+    using HeartbeatYayinlayici = std::function<void(const Heartbeat&)>;
+    using TelemetriYayinlayici = std::function<void(const Telemetry&)>;
+
+    void set_heartbeat_publisher(HeartbeatYayinlayici yayinlayici);
+    void set_telemetry_publisher(TelemetriYayinlayici yayinlayici);
 
     // --- Komut kuyruğu (command_mutex_ korumalı) -----------------------------
 
@@ -172,13 +211,6 @@ private:
     void komut_dongusu();            // Thread 2 — gelen komutların işlenmesi
     void komut_yurutme_dongusu();    // Thread 3 — Task Engine
 
-    // --- Faz 3.5'te doldurulacak yardımcılar ---------------------------------
-
-    // Kendi Heartbeat'ini yayınlar (Thread 1).
-    void send_self_status(TimePoint now);
-
-    // Gelen heartbeat'lerle peer table'ı günceller (Thread 1).
-    void update_peer_list(TimePoint now);
 
     // --- Paylaşılan durum ----------------------------------------------------
 
@@ -210,6 +242,15 @@ private:
     // Acil duruma girildi mi? Acil durum görevlerinin her turda tekrar
     // tekrar kuyruğa eklenmesini engeller.
     bool acil_durumda_ = false;
+
+    // Kendi telemetri sayacımız. HİÇ SIFIRLANMAZ (Bölüm 3.5): süreç
+    // kapanınca RAM'deki değer doğal olarak gider, yeniden başlayınca
+    // 0'dan devam eder. Alıcı taraf bunu OFFLINE->ONLINE geçişinde
+    // last_seen_seq'i sıfırlayarak karşılar.
+    uint32_t telemetri_seq_num_ = 0;
+
+    HeartbeatYayinlayici heartbeat_yayinlayici_;
+    TelemetriYayinlayici telemetri_yayinlayici_;
 
     // --- Kimlik ve kendi durumu ----------------------------------------------
 

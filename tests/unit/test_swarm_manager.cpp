@@ -634,3 +634,256 @@ TEST(TaskAllocationEngine, RolEslesmesiniDogruKarar)
     EXPECT_FALSE(swarm::TaskAllocationEngine::bu_dugumu_ilgilendiriyor(striker_emri, scout));
     EXPECT_FALSE(swarm::TaskAllocationEngine::bu_dugumu_ilgilendiriyor(scout_emri, gcs));
 }
+
+// ============================================================================
+//  Faz 3.5 — check_emergency / update_peer_list / send_self_status
+// ============================================================================
+
+namespace {
+
+swarm::Heartbeat peer_heartbeat_olustur(uint8_t drone_id, swarm::DroneRole rol)
+{
+    swarm::Heartbeat kalp_atisi;
+    kalp_atisi.drone_id(drone_id);
+    kalp_atisi.node_type(swarm::NodeType::DRONE);
+    kalp_atisi.role(rol);
+    kalp_atisi.current_task(swarm::TaskType::IDLE);
+    return kalp_atisi;
+}
+
+}  // namespace
+
+// --- update_peer_list ------------------------------------------------------
+
+TEST(UpdatePeerList, GelenHeartbeatPeeriTabloyaEkler)
+{
+    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+    ASSERT_EQ(yonetici.peer_count(), 0u);
+
+    yonetici.on_heartbeat_received(peer_heartbeat_olustur(2, swarm::DroneRole::STRIKER),
+                                   BASLANGIC);
+
+    EXPECT_EQ(yonetici.peer_count(), 1u);
+    EXPECT_EQ(yonetici.online_peer_count(), 1u);
+}
+
+TEST(UpdatePeerList, KendiYayinimizTabloyaEklenmez)
+{
+    // Multicast'te kendi heartbeat'imizi geri duyabiliriz; kendimizi peer
+    // olarak saymamalıyız.
+    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+
+    yonetici.on_heartbeat_received(peer_heartbeat_olustur(1, swarm::DroneRole::SCOUT),
+                                   BASLANGIC);
+
+    EXPECT_EQ(yonetici.peer_count(), 0u);
+}
+
+TEST(UpdatePeerList, SusanPeerZamanAsimiylaOfflineOlur)
+{
+    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+
+    yonetici.on_heartbeat_received(peer_heartbeat_olustur(2, swarm::DroneRole::STRIKER),
+                                   BASLANGIC);
+    ASSERT_EQ(yonetici.online_peer_count(), 1u);
+
+    // Varsayılan zaman aşımı 3 saniye (PeerManager).
+    yonetici.update_peer_list(BASLANGIC + 2s);
+    EXPECT_EQ(yonetici.online_peer_count(), 1u);
+
+    yonetici.update_peer_list(BASLANGIC + 4s);
+    EXPECT_EQ(yonetici.online_peer_count(), 0u);
+    // Kayıt silinmez: "tanıyorduk ama şimdi kayıp" bilgisi korunur.
+    EXPECT_EQ(yonetici.peer_count(), 1u);
+}
+
+TEST(UpdatePeerList, GeriDonenPeerTekrarOnlineOlur)
+{
+    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+
+    yonetici.on_heartbeat_received(peer_heartbeat_olustur(2, swarm::DroneRole::STRIKER),
+                                   BASLANGIC);
+    yonetici.update_peer_list(BASLANGIC + 4s);
+    ASSERT_EQ(yonetici.online_peer_count(), 0u);
+
+    yonetici.on_heartbeat_received(peer_heartbeat_olustur(2, swarm::DroneRole::STRIKER),
+                                   BASLANGIC + 5s);
+
+    EXPECT_EQ(yonetici.online_peer_count(), 1u);
+}
+
+TEST(UpdatePeerList, KendiTelemetrimizReddedilir)
+{
+    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+
+    swarm::Telemetry kendi;
+    kendi.drone_id(1);
+    kendi.seq_num(5);
+
+    EXPECT_FALSE(yonetici.on_telemetry_received(kendi, BASLANGIC));
+}
+
+// --- send_self_status ------------------------------------------------------
+
+TEST(SendSelfStatus, HeartbeatDogruAlanlarlaUretilir)
+{
+    swarm::SwarmManager& yonetici = drone_olarak_hazirla(3, swarm::DroneRole::STRIKER);
+
+    const swarm::Heartbeat uretilen = yonetici.build_heartbeat();
+
+    EXPECT_EQ(uretilen.drone_id(), 3u);
+    EXPECT_EQ(uretilen.node_type(), swarm::NodeType::DRONE);
+    EXPECT_EQ(uretilen.role(), swarm::DroneRole::STRIKER);
+    // Kuyruk boşken INIT bildirilir.
+    EXPECT_EQ(uretilen.current_task(), swarm::TaskType::INIT);
+}
+
+TEST(SendSelfStatus, HeartbeatAktifGoreviBildirir)
+{
+    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+
+    yonetici.task_engine_adimi(BASLANGIC);  // IdleTask aktif olur
+
+    EXPECT_EQ(yonetici.build_heartbeat().current_task(), swarm::TaskType::IDLE);
+}
+
+TEST(SendSelfStatus, TelemetriSeqNumHerYayindaArtar)
+{
+    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+
+    const uint32_t birinci = yonetici.build_telemetry(BASLANGIC).seq_num();
+    const uint32_t ikinci = yonetici.build_telemetry(BASLANGIC).seq_num();
+    const uint32_t ucuncu = yonetici.build_telemetry(BASLANGIC).seq_num();
+
+    EXPECT_EQ(ikinci, birinci + 1);
+    EXPECT_EQ(ucuncu, birinci + 2);
+}
+
+TEST(SendSelfStatus, TelemetriKendiUcusDurumunuTasir)
+{
+    swarm::SwarmManager& yonetici = drone_olarak_hazirla(2, swarm::DroneRole::STRIKER);
+    yonetici.drone_state().x = 12.5;
+    yonetici.drone_state().z = 40.0;
+    yonetici.drone_state().battery = 73;
+
+    const swarm::Telemetry telemetri = yonetici.build_telemetry(BASLANGIC);
+
+    EXPECT_EQ(telemetri.drone_id(), 2u);
+    EXPECT_DOUBLE_EQ(telemetri.x(), 12.5);
+    EXPECT_DOUBLE_EQ(telemetri.z(), 40.0);
+    EXPECT_EQ(telemetri.battery(), 73u);
+}
+
+TEST(SendSelfStatus, YayinlayiciBagliysaCagirilir)
+{
+    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+
+    // Yayın kanalına bir lambda bağlıyoruz; DDS'in yerini test içinde bu
+    // tutuyor. SwarmManager'ın DDS'i hiç tanımadan yayın yapabilmesinin
+    // sebebi bu std::function katmanı.
+    int heartbeat_sayisi = 0;
+    int telemetri_sayisi = 0;
+    yonetici.set_heartbeat_publisher(
+            [&heartbeat_sayisi](const swarm::Heartbeat&) { ++heartbeat_sayisi; });
+    yonetici.set_telemetry_publisher(
+            [&telemetri_sayisi](const swarm::Telemetry&) { ++telemetri_sayisi; });
+
+    yonetici.send_self_status(BASLANGIC);
+    yonetici.send_self_status(BASLANGIC + 100ms);
+
+    EXPECT_EQ(heartbeat_sayisi, 2);
+    EXPECT_EQ(telemetri_sayisi, 2);
+
+    // Sonraki testleri etkilememesi için kanalları boşaltıyoruz.
+    yonetici.set_heartbeat_publisher(nullptr);
+    yonetici.set_telemetry_publisher(nullptr);
+}
+
+// --- check_emergency -------------------------------------------------------
+
+TEST(CheckEmergency, SaglikliDurumdaAcilDurumYok)
+{
+    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+
+    EXPECT_FALSE(yonetici.check_emergency(BASLANGIC));
+}
+
+TEST(CheckEmergency, KritikBataryaAcilDurumdur)
+{
+    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+
+    yonetici.drone_state().battery = swarm::SwarmManager::KRITIK_BATARYA_YUZDESI;
+    EXPECT_FALSE(yonetici.check_emergency(BASLANGIC));
+
+    yonetici.drone_state().battery =
+            static_cast<uint8_t>(swarm::SwarmManager::KRITIK_BATARYA_YUZDESI - 1);
+    EXPECT_TRUE(yonetici.check_emergency(BASLANGIC));
+}
+
+TEST(CheckEmergency, HicDuyulmayanDroneAcilDurumSayilmaz)
+{
+    // Bölüm 2'deki non-blocking keşif: bir drone hiç ayağa kalkmayabilir.
+    // Tabloya hiç girmediği için acil durum tetiklenmemeli.
+    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+
+    yonetici.update_peer_list(BASLANGIC + 10s);
+
+    EXPECT_FALSE(yonetici.check_emergency(BASLANGIC + 10s));
+}
+
+TEST(CheckEmergency, GelipKaybolanDroneAcilDurumdur)
+{
+    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+
+    yonetici.on_heartbeat_received(peer_heartbeat_olustur(2, swarm::DroneRole::STRIKER),
+                                   BASLANGIC);
+    ASSERT_FALSE(yonetici.check_emergency(BASLANGIC));
+
+    // Peer susuyor -> zaman aşımı -> OFFLINE -> acil durum.
+    yonetici.update_peer_list(BASLANGIC + 4s);
+
+    EXPECT_TRUE(yonetici.check_emergency(BASLANGIC + 4s));
+}
+
+TEST(CheckEmergency, AcilDurumdaFailSafeVeLandingKuyrugaGirer)
+{
+    // Faz 6.4'ün birim test karşılığı: bir düğüm kaybolunca FailSafeTask
+    // tetiklenmeli.
+    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+
+    yonetici.on_heartbeat_received(peer_heartbeat_olustur(2, swarm::DroneRole::STRIKER),
+                                   BASLANGIC);
+    yonetici.push_task(std::make_unique<swarm::ScoutSearchTask>(
+            yonetici.drone_state(), 500.0, 500.0));
+
+    // Peer kayboluyor.
+    yonetici.update_peer_list(BASLANGIC + 4s);
+    yonetici.task_engine_adimi(BASLANGIC + 4s);
+
+    // Devam eden görev iptal edilip güvenli diziye geçilmeli.
+    ASSERT_NE(yonetici.current_task(), nullptr);
+    EXPECT_EQ(yonetici.current_task()->get_type(), swarm::TaskType::FAIL_SAFE);
+
+    // FailSafe bitince iniş gelir.
+    yonetici.task_engine_adimi(BASLANGIC + 6s);
+    ASSERT_NE(yonetici.current_task(), nullptr);
+    EXPECT_EQ(yonetici.current_task()->get_type(), swarm::TaskType::LANDING);
+}
+
+TEST(CheckEmergency, AcilDurumGorevleriHerTurdaTekrarEklenmez)
+{
+    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+
+    yonetici.on_heartbeat_received(peer_heartbeat_olustur(2, swarm::DroneRole::STRIKER),
+                                   BASLANGIC);
+    yonetici.update_peer_list(BASLANGIC + 4s);
+
+    yonetici.task_engine_adimi(BASLANGIC + 4s);
+    const std::size_t ilk_boyut = yonetici.task_queue_size();
+
+    yonetici.task_engine_adimi(BASLANGIC + 4s + 20ms);
+    yonetici.task_engine_adimi(BASLANGIC + 4s + 40ms);
+
+    // Kuyruk büyümemeli; acil durum görevleri yalnızca ilk girişte eklenir.
+    EXPECT_LE(yonetici.task_queue_size(), ilk_boyut);
+}

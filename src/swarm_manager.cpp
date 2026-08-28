@@ -290,24 +290,134 @@ void SwarmManager::acil_durum_gorevlerini_yerlestir(TimePoint)
 }
 
 // ---------------------------------------------------------------------------
-//  Yardımcı fonksiyonlar — gerçek gövdeleri Faz 3.5'te
+//  check_emergency — her Task Engine turunda İLK çalışan kontrol
 // ---------------------------------------------------------------------------
 
 bool SwarmManager::check_emergency(TimePoint) const
 {
-    // Faz 3.5'te doldurulacak (kaybolan peer, kritik batarya).
-    // Şimdilik acil durum yok kabul ediliyor.
-    return false;
+    // 1) Kendi bataryamız kritik mi?
+    if (kendi_durumu_.battery < KRITIK_BATARYA_YUZDESI)
+    {
+        return true;
+    }
+
+    // 2) Bir zamanlar duyduğumuz bir peer artık susuyor mu?
+    //
+    // Peer table'a yalnızca heartbeat'ini duyduğumuz düğümler girer.
+    // Dolayısıyla OFFLINE bir kayıt "önceden tanıyorduk, şimdi kayıp"
+    // demektir — hiç ayağa kalkmamış bir drone burada görünmez, çünkü
+    // tabloya hiç eklenmemiştir. Bu ayrım önemli: Bölüm 2'deki non-blocking
+    // keşif stratejisi "hiç gelmeyen" drone'u acil durum saymaz, ama
+    // "gelip kaybolan" drone'u sayar.
+    const std::lock_guard<std::mutex> kilit(peer_mutex_);
+    return peer_table_.offline_peer_count() > 0;
 }
 
-void SwarmManager::send_self_status(TimePoint)
+// ---------------------------------------------------------------------------
+//  Kendi durumunu yayınlama (Thread 1)
+// ---------------------------------------------------------------------------
+
+Heartbeat SwarmManager::build_heartbeat() const
 {
-    // Faz 3.5'te doldurulacak: kendi Heartbeat'ini yayınlar.
+    Heartbeat kalp_atisi;
+    kalp_atisi.drone_id(config_.drone_id);
+    kalp_atisi.node_type(config_.node_type);
+    kalp_atisi.role(config_.role);
+
+    // "Şu an ne yapıyorum" = aktif Task'ın tipi (Bölüm 3.5).
+    // task_queue_ boşsa henüz bir görev başlamamıştır: INIT bildiriyoruz.
+    kalp_atisi.current_task(
+            task_queue_.empty() ? TaskType::INIT : task_queue_.front()->get_type());
+
+    return kalp_atisi;
 }
 
-void SwarmManager::update_peer_list(TimePoint)
+Telemetry SwarmManager::build_telemetry(TimePoint now)
 {
-    // Faz 3.5'te doldurulacak: gelen heartbeat'lerle peer table'ı günceller.
+    // Sayaç her yayında bir artar ve HİÇ SIFIRLANMAZ. Alıcı taraf
+    // bayatlığı bununla ölçer (Bölüm 3.5).
+    ++telemetri_seq_num_;
+
+    Telemetry telemetri;
+    telemetri.drone_id(config_.drone_id);
+    telemetri.seq_num(telemetri_seq_num_);
+
+    telemetri.x(kendi_durumu_.x);
+    telemetri.y(kendi_durumu_.y);
+    telemetri.z(kendi_durumu_.z);
+    telemetri.vx(kendi_durumu_.vx);
+    telemetri.vy(kendi_durumu_.vy);
+    telemetri.vz(kendi_durumu_.vz);
+    telemetri.battery(kendi_durumu_.battery);
+
+    // timestamp YALNIZCA bilgi/log amaçlı (Bölüm 3.5); bayatlık kararında
+    // kullanılmaz. Duvar saati (system_clock) burada uygundur, çünkü
+    // amaç insan tarafından okunabilir bir zaman damgası vermek.
+    const auto epoch_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch());
+    telemetri.timestamp(static_cast<uint64_t>(epoch_ms.count()));
+
+    (void)now;
+    return telemetri;
+}
+
+void SwarmManager::send_self_status(TimePoint now)
+{
+    // Yayıncı bağlı değilse (Faz 4 öncesi veya testte) mesajı üretmenin
+    // maliyetine girmiyoruz.
+    if (heartbeat_yayinlayici_)
+    {
+        heartbeat_yayinlayici_(build_heartbeat());
+    }
+
+    if (telemetri_yayinlayici_)
+    {
+        telemetri_yayinlayici_(build_telemetry(now));
+    }
+}
+
+void SwarmManager::set_heartbeat_publisher(HeartbeatYayinlayici yayinlayici)
+{
+    heartbeat_yayinlayici_ = std::move(yayinlayici);
+}
+
+void SwarmManager::set_telemetry_publisher(TelemetriYayinlayici yayinlayici)
+{
+    telemetri_yayinlayici_ = std::move(yayinlayici);
+}
+
+// ---------------------------------------------------------------------------
+//  Peer table güncelleme (Thread 1)
+// ---------------------------------------------------------------------------
+
+void SwarmManager::update_peer_list(TimePoint now)
+{
+    const std::lock_guard<std::mutex> kilit(peer_mutex_);
+    peer_table_.refresh_status(now);
+}
+
+void SwarmManager::on_heartbeat_received(const Heartbeat& heartbeat, TimePoint now)
+{
+    // Kendi yayınımızı geri duyabiliriz (multicast); kendimizi peer
+    // tablomuza eklemenin anlamı yok.
+    if (heartbeat.drone_id() == config_.drone_id)
+    {
+        return;
+    }
+
+    const std::lock_guard<std::mutex> kilit(peer_mutex_);
+    peer_table_.on_heartbeat(heartbeat, now);
+}
+
+bool SwarmManager::on_telemetry_received(const Telemetry& telemetry, TimePoint now)
+{
+    if (telemetry.drone_id() == config_.drone_id)
+    {
+        return false;
+    }
+
+    const std::lock_guard<std::mutex> kilit(peer_mutex_);
+    return peer_table_.on_telemetry(telemetry, now);
 }
 
 // ---------------------------------------------------------------------------

@@ -147,4 +147,17 @@ std::size_t PeerManager::online_peer_count() const
     return sayac;
 }
 
+std::size_t PeerManager::offline_peer_count() const
+{
+    std::size_t sayac = 0;
+    for (const auto& giris : peers_)
+    {
+        if (giris.second.status == PeerStatus::OFFLINE)
+        {
+            ++sayac;
+        }
+    }
+    return sayac;
+}
+
 }  // namespace swarm

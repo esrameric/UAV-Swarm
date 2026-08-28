@@ -130,6 +130,9 @@ yapılmış?" sorusunun cevabını tek yerde bulması.
 | V14 | `FailSafeTask` davranışı | Aracı anında durdurur, kısa bir "değerlendirme" süresi bekler, sonra biter (ardından `LandingTask` işletilir) | Geçici bir ağ kesintisi kalıcı arıza gibi davranıp sürüyü gereksiz yere indirmesin diye önce durup bekliyor. |
 | V15 | `DiscoveryTask` bitiş koşulu | En az **bir** peer duyulunca **veya** 5 sn dolunca biter | Bölüm 2'deki non-blocking keşif stratejisi: 3 drone'un hepsi beklenmez, gerçek sahada bir drone hiç ayağa kalkmayabilir. |
 | V16 | Oy verecek kimse yoksa | `ConsensusTask` anında `COMMITTED` olur | Tek başına kalmış bir düğüm oylamada sonsuza kadar kilitlenmemeli. |
+| V17 | Acil durum tanımı | `check_emergency()` iki koşula bakar: kendi batarya **< %15**, veya **bir zamanlar duyulmuş** bir peer'ın susması | Plan `check_emergency()`'nin varlığını söylüyor ama içeriğini tanımlamıyordu. "Hiç duyulmamış" drone acil durum sayılmaz — Bölüm 2'deki non-blocking keşif stratejisiyle tutarlı olması için. |
+| V18 | Acil durum davranışı | Kuyruk boşaltılır, `FailSafeTask` → `LandingTask` yerleştirilir, sonra `IdleTask`'a düşülür | Faz 6.4'ün beklediği davranış: bir container durdurulduğunda `FailSafeTask` tetiklenir. |
+| V19 | Yayın kanalları | `SwarmManager` heartbeat/telemetri yayınını `std::function` üzerinden yapar | Faz 3'te FastDDS henüz yok. Bu katman sayesinde SwarmManager DDS'ten bağımsız test edilebiliyor; Faz 4'te `FastDDSWrapper` kanalları dolduruyor. |
 
 ---
 
@@ -400,6 +403,12 @@ sessiz bir kaynak sızıntısı oluşur.
 **`override`** — "Bu fonksiyon taban sınıftaki sanal bir fonksiyonu eziyor"
 demektir. İsim veya imza yanlış yazılırsa derleyici hata verir; sessizce
 yepyeni bir fonksiyon tanımlamış olmaktan korur.
+
+**`std::function`** — Bir fonksiyonu **değişkende saklamanın** yolu. Buraya
+lambda, serbest fonksiyon veya üye fonksiyon bağlanabilir. `SwarmManager`
+yayın kanallarını `std::function` olarak tuttuğu için DDS'i hiç tanımadan
+yayın yapabiliyor; kanalları Faz 4'te `FastDDSWrapper` dolduruyor, testlerde
+ise bir lambda dolduruyor.
 
 **`dynamic_cast`** — Taban sınıf işaretçisinin gerçekte hangi child'a ait
 olduğunu **çalışma zamanında** sorar; aradığımız tip değilse `nullptr` döner.

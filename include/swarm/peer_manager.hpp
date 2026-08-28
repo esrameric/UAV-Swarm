@@ -96,6 +96,11 @@ public:
     // sorusunu cevaplar.
     std::size_t online_peer_count() const;
 
+    // Bir zamanlar duyulmus ama su an susan peer sayisi. Tabloya yalnizca
+    // heartbeat duyulan dugumler girdigi icin, buradaki her kayit "onceden
+    // taniyorduk, simdi kayip" demektir - check_emergency() bunu kullanir.
+    std::size_t offline_peer_count() const;
+
 private:
     // std::map: anahtar-değer saklayan, anahtara göre sıralı tutan kap.
     // 3-4 peer'lık bir tabloda performans önemsiz; sıralı olması logları
