@@ -278,6 +278,36 @@ parametresi alır. Böylece 3 saniyelik zaman aşımı, testte gerçekten 3 sani
 beklenerek değil, ileri bir zaman değeri verilerek anında ve deterministik
 olarak sınanabilir.
 
+### Eşzamanlılık (Concurrency)
+
+**Thread (iş parçacığı)** — Bir program içinde eşzamanlı ilerleyen ayrı bir
+çalışma akışı. Bu sistemde üç thread var: ağ dinleme (I/O ağırlıklı) ile
+görev yürütme (hesap ağırlıklı) birbirini bekletmesin diye ayrıldılar.
+
+**Singleton** — Bir sınıftan programda **yalnızca bir** nesne olmasını
+garanti eden tasarım deseni. Kurucu `private` yapılır, kopyalama/taşıma
+`= delete` ile silinir, tek örnek `get_instance()` içinde tutulur. Burada
+gerekli, çünkü peer table ve kuyruklar tek bir gerçeğin kaydı olmalı: üç
+thread'in aynı tabloyu görmesi şart.
+
+**Meyers Singleton** — Tek örneği fonksiyon içinde `static` yerel değişken
+olarak tutma tekniği. C++11'den beri bu tür değişkenlerin ilklenmesi
+**thread-safe olmak zorundadır**: iki thread aynı anda `get_instance()`
+çağırsa bile nesne yalnızca bir kez kurulur. Elle kilit yazmaktan daha
+güvenlidir.
+
+**`= delete`** — "Bu fonksiyon yok; kullanmaya çalışan derleme hatası alsın."
+Kopyalamayı silmek, singleton garantisinin kazara kırılmasını **derleme
+zamanında** engeller.
+
+**Lambda** — Yerinde tanımlanan isimsiz fonksiyon: `[yakalama](parametreler)
+{ gövde }`. Köşeli parantez içindeki **yakalama listesi**, lambda'nın
+dışarıdaki hangi değişkenleri kullanacağını söyler; `&` referansla (asıl
+nesne), isim tek başına ise kopyayla yakalar.
+
+**`join()`** — Bir thread'in bitmesini beklemek. Beklenmezse ana thread önce
+bitip programı sonlandırabilir ve iş yarım kalır.
+
 ### Dağıtık Sistemler
 
 **Consensus (uzlaşma)** — Birbirinden bağımsız düğümlerin ortak bir karara

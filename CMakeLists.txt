@@ -105,6 +105,7 @@ target_compile_options(swarm_msgs PRIVATE -w)
 # baglanir. Boylece ayni kod iki yerde ayri ayri derlenmez.
 add_library(swarm_core STATIC
     src/peer_manager.cpp
+    src/swarm_manager.cpp
     src/task/motion.cpp
     src/task/init_task.cpp
     src/task/discovery_task.cpp
@@ -119,9 +120,13 @@ add_library(swarm_core STATIC
 # PUBLIC include: swarm_core'a baglanan herkes #include "swarm/..." yazabilsin.
 target_include_directories(swarm_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+# std::thread ve std::mutex, Linux'ta pthread kutuphanesine baglanmayi
+# gerektirir. Threads::Threads bunu tasinabilir sekilde halleder.
+find_package(Threads REQUIRED)
+
 # PUBLIC link: swarm_core'un baslik dosyalari IDL tiplerini (Heartbeat vb.)
 # disariya tasidigi icin bagimlilik da disariya acilmali.
-target_link_libraries(swarm_core PUBLIC swarm_msgs)
+target_link_libraries(swarm_core PUBLIC swarm_msgs Threads::Threads)
 
 # ============================================================================
 #  Testler (GoogleTest + CTest)
@@ -162,3 +167,4 @@ swarm_add_unit_test(test_peer_info)
 swarm_add_unit_test(test_peer_manager)
 swarm_add_unit_test(test_task)
 swarm_add_unit_test(test_tasks)
+swarm_add_unit_test(test_swarm_manager)
