@@ -278,6 +278,28 @@ parametresi alır. Böylece 3 saniyelik zaman aşımı, testte gerçekten 3 sani
 beklenerek değil, ileri bir zaman değeri verilerek anında ve deterministik
 olarak sınanabilir.
 
+### Dağıtık Sistemler
+
+**Consensus (uzlaşma)** — Birbirinden bağımsız düğümlerin ortak bir karara
+varması. Sürüde göreve başlamak toplu bir karardır: bir drone "başladım"
+sanırken diğeri beklemede kalırsa sürü tutarsız duruma düşer.
+
+**2-Phase Commit (2PC)** — İki aşamalı uzlaşma protokolü. **1. aşama
+(propose):** bir düğüm (burada GCS) "şunu yapalım mı?" diye sorar.
+**2. aşama (vote):** herkes `ACK` veya `NACK` ile cevaplar. Karar
+**oybirliği** gerektirir: tek bir `NACK` bile işlemi iptal ettirir. Bu yüzden
+`ConsensusTask` ilk `NACK`'te diğerlerini beklemeden `ABORTED` olur.
+
+**Zaman aşımı (timeout)** — Cevap gelmeyen bir düğüm için sonsuza kadar
+beklenmez. Burada süre **5 saniyedir**; dolduğunda tüm görev iptal edilir ve
+sürü `IdleTask`'a döner. Heterojen bir sürüde 1 drone eksikken göreve
+başlamak riskli olduğu için davranış bilinçli olarak "net ve öngörülebilir"
+seçildi.
+
+**"Cevap yok" ≠ "Hayır"** — Zaman aşımı ile açık `NACK` aynı sonuca
+(`ABORTED`) götürür ama **sebepleri farklıdır**; teşhis ve log için ayırt
+edilebilir tutulur (`timeout_ile_iptal_oldu()`).
+
 ### Nesne Yönelimli Programlama
 
 **Sınıf (`class`) ve kalıtım (inheritance)** — Sınıf, veri ve davranışı bir

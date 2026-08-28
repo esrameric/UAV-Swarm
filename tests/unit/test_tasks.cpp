@@ -420,3 +420,105 @@ TEST(ConsensusTask, OyVerecekKimseYoksaAninaCommitted)
     EXPECT_TRUE(gorev.is_finished());
     EXPECT_EQ(gorev.result(), swarm::ConsensusResult::COMMITTED);
 }
+
+// ---------------------------------------------------------------------------
+//  Faz 2.3 — ConsensusTask zaman aşımı ve görev iptali
+// ---------------------------------------------------------------------------
+
+TEST(ConsensusTaskTimeout, VarsayilanSureBesSaniye)
+{
+    // Bölüm 3.6'da kararlaştırılan süre. Sabit yanlışlıkla değiştirilirse
+    // bu test uyarır.
+    EXPECT_EQ(swarm::ConsensusTask::VARSAYILAN_TIMEOUT, 5000ms);
+}
+
+TEST(ConsensusTaskTimeout, SureDolmadanOylamaAcikKalir)
+{
+    swarm::ConsensusTask gorev{1, {1, 2, 3}, 5000ms};
+    gorev.on_enter(BASLANGIC);
+
+    gorev.run(BASLANGIC + 4999ms);
+
+    EXPECT_FALSE(gorev.is_finished());
+    EXPECT_EQ(gorev.result(), swarm::ConsensusResult::PENDING);
+}
+
+TEST(ConsensusTaskTimeout, BesSaniyeDolunlaGorevIptalEdilir)
+{
+    swarm::ConsensusTask gorev{1, {1, 2, 3}, 5000ms};
+    gorev.on_enter(BASLANGIC);
+
+    // Sadece iki drone cevap verdi; üçüncüsü hiç ses çıkarmadı (PENDING).
+    gorev.on_vote(1, swarm::Vote::ACK);
+    gorev.on_vote(2, swarm::Vote::ACK);
+    ASSERT_FALSE(gorev.is_finished());
+
+    gorev.run(BASLANGIC + 5000ms);
+
+    EXPECT_TRUE(gorev.is_finished());
+    EXPECT_EQ(gorev.result(), swarm::ConsensusResult::ABORTED);
+    EXPECT_TRUE(gorev.timeout_ile_iptal_oldu());
+
+    // Cevap vermeyen düğüm PENDING'de kalmış olmalı — "cevap yok" ile
+    // "açık NACK" birbirine karıştırılmıyor.
+    EXPECT_EQ(gorev.oy_durumu(3), swarm::Vote::PENDING);
+}
+
+TEST(ConsensusTaskTimeout, IptalDurumundaTumGorevIptalTalimatiVerilir)
+{
+    // Bölüm 2: timeout sonrası yalnızca bu task bitmez, TÜM görev iptal
+    // edilir ve sürü IdleTask'a döner. Kuyruğu boşaltmak Task Engine'in
+    // işidir; ConsensusTask bunu mission_should_abort() ile bildirir.
+    swarm::ConsensusTask gorev{1, {1, 2}, 5000ms};
+    gorev.on_enter(BASLANGIC);
+
+    EXPECT_FALSE(gorev.mission_should_abort());
+
+    gorev.run(BASLANGIC + 5s);
+
+    EXPECT_TRUE(gorev.mission_should_abort());
+}
+
+TEST(ConsensusTaskTimeout, SureDolmadanHerkesAckVerirseCommitEdilir)
+{
+    swarm::ConsensusTask gorev{1, {1, 2}, 5000ms};
+    gorev.on_enter(BASLANGIC);
+
+    gorev.on_vote(1, swarm::Vote::ACK);
+    gorev.on_vote(2, swarm::Vote::ACK);
+
+    // Süre dolsa bile sonuç değişmez: karar zaten verildi.
+    gorev.run(BASLANGIC + 10s);
+
+    EXPECT_EQ(gorev.result(), swarm::ConsensusResult::COMMITTED);
+    EXPECT_FALSE(gorev.mission_should_abort());
+    EXPECT_FALSE(gorev.timeout_ile_iptal_oldu());
+}
+
+TEST(ConsensusTaskTimeout, NackIleIptalTimeoutIleIptalDenSayilmaz)
+{
+    // İkisi de ABORTED ile biter ama sebepleri farklıdır; log ve teşhis
+    // için ayırt edilebilmeli.
+    swarm::ConsensusTask gorev{1, {1, 2}, 5000ms};
+    gorev.on_enter(BASLANGIC);
+
+    gorev.on_vote(1, swarm::Vote::NACK);
+
+    EXPECT_EQ(gorev.result(), swarm::ConsensusResult::ABORTED);
+    EXPECT_TRUE(gorev.mission_should_abort());
+    EXPECT_FALSE(gorev.timeout_ile_iptal_oldu());
+}
+
+TEST(ConsensusTaskTimeout, SureDolduktanSonraGelenAckKarariDegistirmez)
+{
+    swarm::ConsensusTask gorev{1, {1}, 5000ms};
+    gorev.on_enter(BASLANGIC);
+
+    gorev.run(BASLANGIC + 5s);
+    ASSERT_EQ(gorev.result(), swarm::ConsensusResult::ABORTED);
+
+    // Geç kalan oy kabul edilmemeli: görev çoktan iptal edildi.
+    gorev.on_vote(1, swarm::Vote::ACK);
+
+    EXPECT_EQ(gorev.result(), swarm::ConsensusResult::ABORTED);
+}

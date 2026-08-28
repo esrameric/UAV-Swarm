@@ -4,8 +4,10 @@ namespace swarm {
 
 ConsensusTask::ConsensusTask(
         uint32_t transaction_id,
-        std::vector<uint8_t> beklenen_oy_verenler)
+        std::vector<uint8_t> beklenen_oy_verenler,
+        std::chrono::milliseconds timeout)
     : transaction_id_(transaction_id)
+    , timeout_(timeout)
 {
     for (const uint8_t oy_veren_id : beklenen_oy_verenler)
     {
@@ -13,9 +15,12 @@ ConsensusTask::ConsensusTask(
     }
 }
 
-void ConsensusTask::on_enter(TimePoint)
+void ConsensusTask::on_enter(TimePoint now)
 {
+    // Zaman aşımı sayacı, teklifin yayınlandığı andan itibaren işler.
+    baslangic_ = now;
     sonuc_ = ConsensusResult::PENDING;
+    timeout_ile_iptal_ = false;
 
     // Oylamanın hiç oy verecek kimsesi yoksa beklemek anlamsız: tek başına
     // kalmış bir düğüm burada sonsuza kadar kilitlenmemeli.
@@ -25,10 +30,28 @@ void ConsensusTask::on_enter(TimePoint)
     }
 }
 
-void ConsensusTask::run(TimePoint)
+void ConsensusTask::run(TimePoint now)
 {
-    // Oylar ağdan asenkron olarak on_vote() ile geliyor; run()'ın burada
-    // yapacağı bir iş yok. Faz 2.3'te zaman aşımı kontrolü eklenecek.
+    // Oylar ağdan asenkron olarak on_vote() ile geliyor. run()'ın tek işi
+    // zaman aşımını kollamak.
+    if (sonuc_ != ConsensusResult::PENDING)
+    {
+        return;  // sonuç zaten belli
+    }
+
+    const auto gecen = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - baslangic_);
+
+    if (gecen < timeout_)
+    {
+        return;
+    }
+
+    // Süre doldu ve hâlâ tam ACK yok. Eksik cevap veren düğümler PENDING'de
+    // kaldı. Heterojen bir sürüde 1 drone eksikken göreve başlamak riskli
+    // olduğu için tüm görev iptal edilir (Bölüm 2).
+    sonuc_ = ConsensusResult::ABORTED;
+    timeout_ile_iptal_ = true;
 }
 
 void ConsensusTask::on_exit()
