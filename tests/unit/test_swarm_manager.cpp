@@ -89,10 +89,18 @@ TEST(SwarmManagerSingleton, EszamanliErisimdeDeTekOrnek)
 // ============================================================================
 
 #include "swarm/command.hpp"
+#include "swarm/task/consensus_task.hpp"
+#include "swarm/task/hover_task.hpp"
 #include "swarm/task/idle_task.hpp"
+#include "swarm/task/scout_search_task.hpp"
 #include "swarm/task/init_task.hpp"
 
 namespace {
+
+using namespace std::chrono_literals;
+
+// Testlerin sabit zaman referansı (bkz. test_tasks.cpp'deki aynı kalıp).
+const swarm::TimePoint BASLANGIC{};
 
 void kuyruklari_bosalt(swarm::SwarmManager& yonetici)
 {
@@ -368,4 +376,261 @@ TEST(SwarmManagerYasamDongusu, BasDurBasDurDongusuCalisir)
         yonetici.stop();
         ASSERT_FALSE(yonetici.is_running());
     }
+}
+
+// ============================================================================
+//  Faz 3.4 — Task Engine (Thread 3) davranışı
+//
+//  Thread başlatmadan test ediyoruz: task_engine_adimi(now) tek bir turdur,
+//  thread yalnızca onu döngüde çağırır. Zamanı biz verdiğimiz için
+//  senaryolar deterministik.
+// ============================================================================
+
+#include "swarm/task_allocation_engine.hpp"
+
+namespace {
+
+swarm::SwarmManager& drone_olarak_hazirla(uint8_t drone_id, swarm::DroneRole rol)
+{
+    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
+
+    swarm::SwarmConfig config;
+    config.drone_id = drone_id;
+    config.node_type = swarm::NodeType::DRONE;
+    config.role = rol;
+
+    yonetici.init(config);
+    return yonetici;
+}
+
+}  // namespace
+
+TEST(TaskEngine, BosKuyrukIdleTaskaDuser)
+{
+    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+    ASSERT_EQ(yonetici.task_queue_size(), 0u);
+
+    yonetici.task_engine_adimi(BASLANGIC);
+
+    ASSERT_NE(yonetici.current_task(), nullptr);
+    EXPECT_EQ(yonetici.current_task()->get_type(), swarm::TaskType::IDLE);
+}
+
+TEST(TaskEngine, BitenGorevKuyruktanCikarilirVeSiradakiBaslar)
+{
+    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+
+    // InitTask ilk run()'da biter; ardindan HoverTask aktif olmali.
+    yonetici.push_task(std::make_unique<swarm::InitTask>());
+    yonetici.push_task(std::make_unique<swarm::HoverTask>(yonetici.drone_state(), 1000ms));
+    ASSERT_EQ(yonetici.task_queue_size(), 2u);
+
+    yonetici.task_engine_adimi(BASLANGIC);
+
+    EXPECT_EQ(yonetici.task_queue_size(), 1u);
+    ASSERT_NE(yonetici.current_task(), nullptr);
+    EXPECT_EQ(yonetici.current_task()->get_type(), swarm::TaskType::HOVER);
+}
+
+TEST(TaskEngine, KuyrukTukeninceIdleTaskaDonulur)
+{
+    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+    yonetici.push_task(std::make_unique<swarm::InitTask>());
+
+    yonetici.task_engine_adimi(BASLANGIC);          // InitTask biter
+    yonetici.task_engine_adimi(BASLANGIC + 20ms);   // kuyruk bos -> IdleTask
+
+    ASSERT_NE(yonetici.current_task(), nullptr);
+    EXPECT_EQ(yonetici.current_task()->get_type(), swarm::TaskType::IDLE);
+}
+
+// --- Gorev dagitimi (TaskAllocationEngine) ---------------------------------
+
+TEST(TaskEngine, ScoutRoluAramaGoreviAlir)
+{
+    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+
+    yonetici.add_command(swarm::Command::gorev_emri(
+            gorev_emri_olustur(10, swarm::DroneRole::SCOUT)));
+
+    yonetici.task_engine_adimi(BASLANGIC);
+
+    ASSERT_NE(yonetici.current_task(), nullptr);
+    EXPECT_EQ(yonetici.current_task()->get_type(), swarm::TaskType::SCOUT_SEARCH);
+}
+
+TEST(TaskEngine, StrikerRoluHedefeGidisGoreviAlir)
+{
+    swarm::SwarmManager& yonetici = drone_olarak_hazirla(2, swarm::DroneRole::STRIKER);
+
+    yonetici.add_command(swarm::Command::gorev_emri(
+            gorev_emri_olustur(11, swarm::DroneRole::STRIKER)));
+
+    yonetici.task_engine_adimi(BASLANGIC);
+
+    ASSERT_NE(yonetici.current_task(), nullptr);
+    EXPECT_EQ(yonetici.current_task()->get_type(), swarm::TaskType::GO_TO_TARGET);
+}
+
+TEST(TaskEngine, BaskaRoleGonderilenEmirYokSayilir)
+{
+    // Heterojen sure: emir bir DRONE'a degil bir ROLE gonderilir.
+    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+
+    yonetici.add_command(swarm::Command::gorev_emri(
+            gorev_emri_olustur(12, swarm::DroneRole::STRIKER)));
+
+    yonetici.task_engine_adimi(BASLANGIC);
+
+    // Emir yok sayildi -> IdleTask'ta kaldik.
+    ASSERT_NE(yonetici.current_task(), nullptr);
+    EXPECT_EQ(yonetici.current_task()->get_type(), swarm::TaskType::IDLE);
+}
+
+TEST(TaskEngine, GcsUcusGoreviAlmaz)
+{
+    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
+    swarm::SwarmConfig config;
+    config.drone_id = 0;
+    config.node_type = swarm::NodeType::GCS;
+    yonetici.init(config);
+
+    yonetici.add_command(swarm::Command::gorev_emri(
+            gorev_emri_olustur(13, swarm::DroneRole::SCOUT)));
+
+    yonetici.task_engine_adimi(BASLANGIC);
+
+    ASSERT_NE(yonetici.current_task(), nullptr);
+    EXPECT_EQ(yonetici.current_task()->get_type(), swarm::TaskType::IDLE);
+}
+
+TEST(TaskEngine, YeniGorevEmriIdleTaskiYerindenEder)
+{
+    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+
+    yonetici.task_engine_adimi(BASLANGIC);
+    ASSERT_EQ(yonetici.current_task()->get_type(), swarm::TaskType::IDLE);
+
+    yonetici.add_command(swarm::Command::gorev_emri(
+            gorev_emri_olustur(14, swarm::DroneRole::SCOUT)));
+    yonetici.task_engine_adimi(BASLANGIC + 20ms);
+
+    // Bosta beklemeye devam etmenin anlami yok: yeni goreve geciliyor.
+    EXPECT_EQ(yonetici.current_task()->get_type(), swarm::TaskType::SCOUT_SEARCH);
+    EXPECT_EQ(yonetici.task_queue_size(), 1u);
+}
+
+// --- Consensus oylarinin yonlendirilmesi -----------------------------------
+
+TEST(TaskEngine, ConsensusOyuAktifOylamayaIletilir)
+{
+    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+
+    auto oylama = std::make_unique<swarm::ConsensusTask>(
+            77, std::vector<uint8_t>{2, 3}, 5000ms);
+    swarm::ConsensusTask* oylama_ptr = oylama.get();
+    yonetici.push_task(std::move(oylama));
+
+    swarm::Consensus oy;
+    oy.transaction_id(77);
+    oy.sender_id(2);
+    oy.vote(swarm::Vote::ACK);
+    yonetici.add_command(swarm::Command::consensus_oyu(oy));
+
+    yonetici.task_engine_adimi(BASLANGIC);
+
+    EXPECT_EQ(oylama_ptr->oy_durumu(2), swarm::Vote::ACK);
+}
+
+TEST(TaskEngine, YanlisTransactionIdliOyYokSayilir)
+{
+    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+
+    auto oylama = std::make_unique<swarm::ConsensusTask>(
+            77, std::vector<uint8_t>{2}, 5000ms);
+    swarm::ConsensusTask* oylama_ptr = oylama.get();
+    yonetici.push_task(std::move(oylama));
+
+    swarm::Consensus oy;
+    oy.transaction_id(999);   // baska bir oylama turuna ait
+    oy.sender_id(2);
+    oy.vote(swarm::Vote::ACK);
+    yonetici.add_command(swarm::Command::consensus_oyu(oy));
+
+    yonetici.task_engine_adimi(BASLANGIC);
+
+    EXPECT_EQ(oylama_ptr->oy_durumu(2), swarm::Vote::PENDING);
+}
+
+TEST(TaskEngine, ConsensusIptalindeTumGorevKuyruguBosaltilir)
+{
+    // Bolum 2/3.6: oylama basarisizsa yalnizca o task bitmez, TUM gorev
+    // iptal edilir ve suru IdleTask'a doner.
+    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+
+    yonetici.push_task(std::make_unique<swarm::ConsensusTask>(
+            88, std::vector<uint8_t>{2, 3}, 5000ms));
+    // Oylama gecerse yapilacak gorevler de kuyrukta bekliyor:
+    yonetici.push_task(std::make_unique<swarm::ScoutSearchTask>(
+            yonetici.drone_state(), 100.0, 100.0));
+    yonetici.push_task(std::make_unique<swarm::HoverTask>(
+            yonetici.drone_state(), 1000ms));
+    ASSERT_EQ(yonetici.task_queue_size(), 3u);
+
+    // Oylama baslar ama kimse cevap vermez; 5 saniye sonra timeout.
+    yonetici.task_engine_adimi(BASLANGIC);
+    ASSERT_EQ(yonetici.task_queue_size(), 3u);
+
+    yonetici.task_engine_adimi(BASLANGIC + 5s);
+
+    // Bekleyen TUM gorevler iptal edildi.
+    EXPECT_EQ(yonetici.task_queue_size(), 0u);
+
+    // Bir sonraki turda IdleTask'a dusuluyor.
+    yonetici.task_engine_adimi(BASLANGIC + 5s + 20ms);
+    ASSERT_NE(yonetici.current_task(), nullptr);
+    EXPECT_EQ(yonetici.current_task()->get_type(), swarm::TaskType::IDLE);
+}
+
+TEST(TaskEngine, BasariliConsensusSonrasiSiradakiGoreveGecilir)
+{
+    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+
+    yonetici.push_task(std::make_unique<swarm::ConsensusTask>(
+            99, std::vector<uint8_t>{2}, 5000ms));
+    yonetici.push_task(std::make_unique<swarm::ScoutSearchTask>(
+            yonetici.drone_state(), 10.0, 0.0));
+
+    yonetici.task_engine_adimi(BASLANGIC);
+
+    swarm::Consensus oy;
+    oy.transaction_id(99);
+    oy.sender_id(2);
+    oy.vote(swarm::Vote::ACK);
+    yonetici.add_command(swarm::Command::consensus_oyu(oy));
+
+    yonetici.task_engine_adimi(BASLANGIC + 20ms);
+
+    // Oylama COMMITTED oldu, gorev iptal edilmedi, siradakine gecildi.
+    ASSERT_NE(yonetici.current_task(), nullptr);
+    EXPECT_EQ(yonetici.current_task()->get_type(), swarm::TaskType::SCOUT_SEARCH);
+}
+
+// --- TaskAllocationEngine dogrudan -----------------------------------------
+
+TEST(TaskAllocationEngine, RolEslesmesiniDogruKarar)
+{
+    swarm::SwarmConfig scout;
+    scout.node_type = swarm::NodeType::DRONE;
+    scout.role = swarm::DroneRole::SCOUT;
+
+    swarm::SwarmConfig gcs;
+    gcs.node_type = swarm::NodeType::GCS;
+
+    const swarm::TaskAllocation scout_emri = gorev_emri_olustur(1, swarm::DroneRole::SCOUT);
+    const swarm::TaskAllocation striker_emri = gorev_emri_olustur(2, swarm::DroneRole::STRIKER);
+
+    EXPECT_TRUE(swarm::TaskAllocationEngine::bu_dugumu_ilgilendiriyor(scout_emri, scout));
+    EXPECT_FALSE(swarm::TaskAllocationEngine::bu_dugumu_ilgilendiriyor(striker_emri, scout));
+    EXPECT_FALSE(swarm::TaskAllocationEngine::bu_dugumu_ilgilendiriyor(scout_emri, gcs));
 }

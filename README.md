@@ -401,6 +401,12 @@ sessiz bir kaynak sızıntısı oluşur.
 demektir. İsim veya imza yanlış yazılırsa derleyici hata verir; sessizce
 yepyeni bir fonksiyon tanımlamış olmaktan korur.
 
+**`dynamic_cast`** — Taban sınıf işaretçisinin gerçekte hangi child'a ait
+olduğunu **çalışma zamanında** sorar; aradığımız tip değilse `nullptr` döner.
+Task Engine burada kullanır, çünkü "görev bitti" sinyalinin anlamı
+`ConsensusTask` için özeldir (iptal mi, başarı mı?). Polimorfizmin doğal
+akışını bozduğu için ölçülü kullanılır.
+
 **Akıllı işaretçi (`std::unique_ptr`)** — İşaret ettiği nesnenin tek
 sahibidir ve kapsam dışına çıkınca onu **otomatik siler**. `delete` yazmayı
 unutma ihtimalini ortadan kaldırır — RAII'nin bellek yönetimine uygulanmış

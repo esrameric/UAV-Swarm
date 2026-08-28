@@ -106,6 +106,7 @@ target_compile_options(swarm_msgs PRIVATE -w)
 add_library(swarm_core STATIC
     src/peer_manager.cpp
     src/swarm_manager.cpp
+    src/task_allocation_engine.cpp
     src/task/motion.cpp
     src/task/init_task.cpp
     src/task/discovery_task.cpp

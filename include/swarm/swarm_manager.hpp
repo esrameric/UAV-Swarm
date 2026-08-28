@@ -102,6 +102,27 @@ public:
     DroneState& drone_state() { return kendi_durumu_; }
     const DroneState& drone_state() const { return kendi_durumu_; }
 
+    // --- Task Engine (Thread 3) ----------------------------------------------
+
+    // Task Engine'in TEK turu. Thread 3 bunu döngüde çağırır.
+    // Testlerin zamanı kontrol edebilmesi için ayrı ve public: thread
+    // başlatmadan, istenen `now` değeriyle adım adım işletilebilir.
+    //
+    // Sırası (Bölüm 3.2):
+    //   1) check_emergency()
+    //   2) bekleyen komutları işle
+    //   3) aktif görevi ilerlet, bittiyse sıradakine geç
+    //   4) kuyruk boşaldıysa IdleTask'a düş
+    void task_engine_adimi(TimePoint now);
+
+    // Komut kuyruğundaki her şeyi işler: consensus oylarını aktif
+    // ConsensusTask'a iletir, görev emirlerini TaskAllocationEngine'e
+    // danışarak görev kuyruğuna dönüştürür.
+    void bekleyen_komutlari_isle(TimePoint now);
+
+    // Acil durum var mı? (Bölüm 3.2 — her turda ilk çalışan kontrol)
+    bool check_emergency(TimePoint now) const;
+
     // --- Komut kuyruğu (command_mutex_ korumalı) -----------------------------
 
     // Ağdan gelen bir komutu kuyruğa ekler. Thread 2 çağırır.
@@ -141,11 +162,23 @@ private:
     SwarmManager() = default;
     ~SwarmManager() = default;
 
-    // --- Thread gövdeleri (Faz 3.4) ------------------------------------------
+    // Acil durumda kuyruğu boşaltıp FailSafe -> Landing -> Idle dizisini
+    // yerleştirir. Yalnızca acil duruma İLK girişte çalışır.
+    void acil_durum_gorevlerini_yerlestir(TimePoint now);
+
+    // --- Thread gövdeleri ----------------------------------------------------
 
     void drone_list_dongusu();       // Thread 1 — heartbeat yayını + peer takibi
     void komut_dongusu();            // Thread 2 — gelen komutların işlenmesi
     void komut_yurutme_dongusu();    // Thread 3 — Task Engine
+
+    // --- Faz 3.5'te doldurulacak yardımcılar ---------------------------------
+
+    // Kendi Heartbeat'ini yayınlar (Thread 1).
+    void send_self_status(TimePoint now);
+
+    // Gelen heartbeat'lerle peer table'ı günceller (Thread 1).
+    void update_peer_list(TimePoint now);
 
     // --- Paylaşılan durum ----------------------------------------------------
 
@@ -169,6 +202,14 @@ private:
     // Yalnızca Thread 3 (Task Engine) dokunduğu için mutex'i yok.
     // Görevler unique_ptr ile tutulur: kuyruktan çıkan görev otomatik silinir.
     std::deque<std::unique_ptr<Task>> task_queue_;
+
+    // Kuyruğun başındaki göreve on_enter() çağrıldı mı? Bir görev aktif
+    // olduğunda on_enter'ı tam bir kez çağırmak için gerekli.
+    bool aktif_gorev_baslatildi_ = false;
+
+    // Acil duruma girildi mi? Acil durum görevlerinin her turda tekrar
+    // tekrar kuyruğa eklenmesini engeller.
+    bool acil_durumda_ = false;
 
     // --- Kimlik ve kendi durumu ----------------------------------------------
 
