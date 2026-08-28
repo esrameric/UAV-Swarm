@@ -98,6 +98,22 @@ target_link_libraries(swarm_msgs PUBLIC fastdds fastcdr)
 target_compile_options(swarm_msgs PRIVATE -w)
 
 # ============================================================================
+#  swarm_core — projenin kendi kodu
+# ============================================================================
+#
+# Uygulama mantigi buraya toplanir; hem main.cpp hem de testler bu kutuphaneye
+# baglanir. Boylece ayni kod iki yerde ayri ayri derlenmez.
+add_library(swarm_core STATIC
+    src/peer_manager.cpp)
+
+# PUBLIC include: swarm_core'a baglanan herkes #include "swarm/..." yazabilsin.
+target_include_directories(swarm_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+# PUBLIC link: swarm_core'un baslik dosyalari IDL tiplerini (Heartbeat vb.)
+# disariya tasidigi icin bagimlilik da disariya acilmali.
+target_link_libraries(swarm_core PUBLIC swarm_msgs)
+
+# ============================================================================
 #  Testler (GoogleTest + CTest)
 # ============================================================================
 #
@@ -120,12 +136,11 @@ function(swarm_add_unit_test test_name)
 
     # GTest::gtest_main, `int main()` fonksiyonunu bizim yerimize sağlar;
     # bu sayede test dosyalarında main yazmamıza gerek kalmaz.
+    # swarm_core, hem projenin kendi kodunu hem de (PUBLIC bagimlilik olarak)
+    # uretilen IDL tiplerini ve include dizinlerini beraberinde getirir.
     target_link_libraries(${test_name} PRIVATE
         GTest::gtest GTest::gtest_main
-        swarm_msgs)
-
-    # Projenin kendi baslik dosyalari: #include "swarm/..." seklinde yazilabilsin.
-    target_include_directories(${test_name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+        swarm_core)
 
     add_test(NAME ${test_name} COMMAND ${test_name})
 endfunction()
@@ -134,3 +149,4 @@ endfunction()
 swarm_add_unit_test(test_build_environment)
 swarm_add_unit_test(test_message_types)
 swarm_add_unit_test(test_peer_info)
+swarm_add_unit_test(test_peer_manager)

@@ -233,6 +233,46 @@ dizisine çevirmek (serialize) ve karşı tarafta geri nesneye dönüştürmek
 (deserialize). DDS bunu bizim yerimize yapar; `fastddsgen`'in ürettiği
 `...PubSubType` sınıfları tam olarak bu işi üstlenir.
 
+### Sınıflar ve Standart Kütüphane
+
+**Kurucu (constructor) ve başlatma listesi** — Kurucu, bir nesne
+oluşturulurken çalışan özel fonksiyondur. `: uye_(deger)` şeklindeki
+başlatma listesi, üyeleri gövdeye girilmeden önce doğrudan kurar; gövde
+içinde atama yapmaktan hem daha verimlidir hem de `const` üyeler için tek
+yoldur.
+
+**`explicit`** — Tek parametreli kurucuların istenmeyen **örtük** (implicit)
+tip dönüşümü yapmasını engeller. `explicit` olmasaydı, bir fonksiyona
+yanlışlıkla süre verildiğinde derleyici onu sessizce `PeerManager`'a
+çevirebilirdi.
+
+**`std::map`** — Anahtar–değer çiftlerini anahtara göre **sıralı** tutan kap.
+`operator[]` "yoksa ekle, varsa getir" davranışı gösterir; `find()` ise
+aramayı yapar ama **kayıt eklemez** — telemetri, henüz tanışmadığımız bir
+peer'ı tabloya sokmasın diye bu ayrım önemlidir.
+
+**Iterator ve `end()`** — Kaplarda gezinmeyi sağlayan "imleç". `find()`
+aradığını bulamazsa `end()` döner; bu yüzden dönen değeri kullanmadan önce
+`!= end()` kontrolü şarttır.
+
+**Range-for (`for (auto& x : kap)`)** — Bir kabın tüm elemanlarını gezmenin
+kısa yolu. Baştaki `&` önemlidir: onsuz her eleman **kopyalanır** ve
+üzerinde yapılan değişiklik kaptaki asıl kayda yansımaz.
+
+**`nullptr`** — "Hiçbir şeyi göstermeyen işaretçi". `find()` gibi
+"bulamayabilirim" diyen fonksiyonlar bunu döndürür; çağıran taraf
+kullanmadan önce kontrol etmelidir.
+
+**Sahiplik (ownership)** — Bir kaynağı silmekten kimin sorumlu olduğu.
+`PeerManager::find()` ham işaretçi döndürür ama **sahipliği devretmez**:
+işaret edilen kayıt `PeerManager`'a aittir, çağıran onu silmemelidir.
+
+**Zamanın dışarıdan verilmesi (dependency injection)** — `PeerManager`
+fonksiyonları içeride `steady_clock::now()` çağırmak yerine `now`
+parametresi alır. Böylece 3 saniyelik zaman aşımı, testte gerçekten 3 saniye
+beklenerek değil, ileri bir zaman değeri verilerek anında ve deterministik
+olarak sınanabilir.
+
 ### Sürü Durumu
 
 **Peer / peer table** — "Peer", sürüdeki başka bir düğüm demektir. Her düğüm,
