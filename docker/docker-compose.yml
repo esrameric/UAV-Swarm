@@ -1,0 +1,93 @@
+# =============================================================================
+#  Sürü İHA sistemi — 4 düğümlü SITL kurulumu
+#
+#  AĞ MODU: custom bridge, her container'a SABİT ve AYRI IP (Bölüm 2).
+#
+#  Neden host networking DEĞİL: host networking'de tüm container'lar host'un
+#  TEK IP'sini paylaşır. Bu, "drone'lar birbirinin IP'sini ağ üzerinden
+#  keşfeder" gereksinimini anlamsızlaştırır — hepsi zaten aynı adresten
+#  konuşuyor olurdu. Ayrı IP'ler, sahadaki 3 ayrı cihazı doğru simüle eder.
+#
+#  TEK IMAJ, DÖRT CONTAINER: dördü de swarm_node:latest imajını kullanır;
+#  farkı yalnızca ortam değişkenleridir.
+#
+#  Kullanım (depo kökünden):
+#      docker compose -f docker/docker-compose.yml up --build
+#      docker compose -f docker/docker-compose.yml logs -f
+#      docker compose -f docker/docker-compose.yml down
+# =============================================================================
+
+services:
+
+  # --- Taktik Yer Kontrol İstasyonu -----------------------------------------
+  # Sürünün 4. düğümü. Görev emri verir, consensus'u başlatır, telemetriyi
+  # izler. Drone'larla aynı imajı ve aynı Fast DDS altyapısını kullanır.
+  gcs_node:
+    image: swarm_node:latest
+    build:
+      # Build context depo kökü; Dockerfile docker/ altında.
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: swarm_gcs
+    environment:
+      NODE_TYPE: GCS
+      DRONE_ID: 0
+      ROS_DOMAIN_ID: 42
+    networks:
+      swarm_net:
+        ipv4_address: 172.20.0.10
+
+  # --- Gözcü (Scout) ---------------------------------------------------------
+  drone_scout:
+    image: swarm_node:latest
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: swarm_drone_scout
+    environment:
+      NODE_TYPE: DRONE
+      ROLE: SCOUT
+      DRONE_ID: 1
+      ROS_DOMAIN_ID: 42
+    networks:
+      swarm_net:
+        ipv4_address: 172.20.0.11
+
+  # --- Müdahale 1 (Striker) --------------------------------------------------
+  drone_striker_1:
+    image: swarm_node:latest
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: swarm_drone_striker_1
+    environment:
+      NODE_TYPE: DRONE
+      ROLE: STRIKER
+      DRONE_ID: 2
+      ROS_DOMAIN_ID: 42
+    networks:
+      swarm_net:
+        ipv4_address: 172.20.0.12
+
+  # --- Müdahale 2 (Striker) --------------------------------------------------
+  drone_striker_2:
+    image: swarm_node:latest
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: swarm_drone_striker_2
+    environment:
+      NODE_TYPE: DRONE
+      ROLE: STRIKER
+      DRONE_ID: 3
+      ROS_DOMAIN_ID: 42
+    networks:
+      swarm_net:
+        ipv4_address: 172.20.0.13
+
+networks:
+  swarm_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
