@@ -1,0 +1,69 @@
+// ============================================================================
+//  Sürünün ortak enum tanımları
+//
+//  Bu dosya diğer IDL'ler tarafından `#include` edilir. Enum'ları tek yerde
+//  toplamak, aynı tanımın dört mesaj dosyasında tekrar edip birbirinden
+//  ayrışmasını (drift) engeller.
+//
+//  ENUM NEDİR? Sınırlı sayıda, isimlendirilmiş seçenekten oluşan bir tip.
+//  "Rol" alanını `int` veya `string` yapmak yerine `DroneRole` yapmak iki şey
+//  kazandırır: (1) geçersiz bir değer atamak derleme hatası olur,
+//  (2) kod `role == SCOUT` diye okunur, `role == 0` diye değil.
+//
+//  IDL'de bir enum'un ilk elemanı 0, sonraki her eleman bir fazladır.
+//  Sıralama bu yüzden anlamlıdır ve keyfi değiştirilemez — tel formatında
+//  (wire format) taşınan şey isim değil, bu sayıdır.
+// ============================================================================
+
+module swarm {
+
+// --- Düğüm tipi -------------------------------------------------------------
+// GCS bir "drone rolü" DEĞİLDİR, bu yüzden DroneRole'e karıştırılmıyor;
+// ayrı bir tip olarak modellenir (Bölüm 3.5).
+enum NodeType
+{
+    DRONE,      // = 0
+    GCS         // = 1
+};
+
+// --- Drone rolü -------------------------------------------------------------
+// Yalnızca node_type == DRONE iken anlamlıdır.
+// Sürü heterojendir: 1 Gözcü + 2 Müdahale (Bölüm 2).
+enum DroneRole
+{
+    SCOUT,      // = 0  Gözcü   -> alan taraması / hedef tespiti
+    STRIKER     // = 1  Müdahale -> hedefe gidiş
+};
+
+// --- Aktif görev tipi -------------------------------------------------------
+// Heartbeat'te "şu an ne yapıyor" bilgisini taşır. Task hiyerarşisindeki
+// (Bölüm 3.3) 9 child task ile birebir örtüşür.
+enum TaskType
+{
+    INIT,           // = 0  Başlangıç kurulumu
+    DISCOVERY,      // = 1  Sürüdeki diğer düğümleri keşfetme
+    CONSENSUS,      // = 2  2-Phase Commit oylaması
+    IDLE,           // = 3  Boşta bekleme (kuyruk boş)
+    SCOUT_SEARCH,   // = 4  Alan taraması        (yalnız Gözcü)
+    GO_TO_TARGET,   // = 5  Hedefe gidiş         (yalnız Müdahale)
+    HOVER,          // = 6  Havada sabit durma
+    FAIL_SAFE,      // = 7  Arıza/acil durum davranışı
+    LANDING         // = 8  İniş
+};
+
+// --- Consensus oyu ----------------------------------------------------------
+// ÜÇ DURUMLU olması bilinçli (Bölüm 3.5): "henüz cevap vermedi" ile
+// "açıkça hayır dedi" birbirinden farklı durumlardır ve farklı davranış
+// gerektirir.
+//
+// PENDING'in 0 olması da bilinçli: varsayılan olarak sıfırlanan (default
+// initialize edilen) bir oy alanı, otomatik olarak "henüz oy yok" anlamına
+// gelir. Yanlışlıkla "ACK" sayılma riski ortadan kalkar.
+enum Vote
+{
+    PENDING,    // = 0  Henüz cevap gelmedi
+    NACK,       // = 1  Hayır (örn. batarya yetersiz)
+    ACK         // = 2  Evet, göreve hazırım
+};
+
+};  // module swarm

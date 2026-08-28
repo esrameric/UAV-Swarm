@@ -160,6 +160,31 @@ hangi standartta çalıştığını `__cplusplus` makrosuyla bildirir (C++17 iç
 sağlanmazsa program hiç derlenmez. Çalışma zamanına kalmadan hata yakalamanın
 en ucuz yoludur.
 
+### Veri Tipleri ve IDL
+
+**IDL (Interface Definition Language)** — Dilden bağımsız bir mesaj tanımlama
+dili. Bir `.idl` dosyasında "bu mesajın içinde şu alanlar var" denir;
+`fastddsgen` bunu C++ sınıflarına ve DDS'in ihtiyaç duyduğu
+serileştirme/deserileştirme koduna çevirir. Böylece mesajın tel formatı (wire
+format) tek bir kaynaktan üretilir, elle yazılmaz.
+
+**`enum` / `enum class`** — Sınırlı sayıda isimlendirilmiş seçenekten oluşan
+tip. `role`'ü `int` yerine `DroneRole` yapmak, geçersiz değer atamayı derleme
+hatasına çevirir ve kodu `role == DroneRole::SCOUT` gibi okunur kılar.
+C++'ta `enum class`, düz `enum`'dan iki noktada daha güvenlidir: değerleri
+kapsayan tipin adıyla nitelenmek zorundadır (`DroneRole::SCOUT`), ve sessizce
+`int`'e dönüşmez. `fastddsgen` IDL enum'larını `enum class ... : int32_t`
+olarak üretir.
+
+**Tel formatı (wire format)** — Bir mesajın ağda gerçekten hangi baytlarla
+temsil edildiği. Enum'larda taşınan şey ismin kendisi değil sıra numarasıdır;
+bu yüzden IDL'deki enum sıralaması keyfi olarak değiştirilemez — değiştirilirse
+eski ve yeni sürüm birbirini yanlış anlar.
+
+**Modül / namespace** — IDL'deki `module swarm { ... }`, C++ tarafında
+`namespace swarm { ... }` olur. İsimleri bir çatı altında toplayarak farklı
+kütüphanelerdeki aynı isimli tiplerin çakışmasını önler: `swarm::Heartbeat`.
+
 ### Ağ ve Konteyner
 
 **Docker / container** — Bir uygulamayı, bağımlılıklarıyla birlikte izole ve
