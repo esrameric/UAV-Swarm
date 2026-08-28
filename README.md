@@ -125,6 +125,11 @@ yapılmış?" sorusunun cevabını tek yerde bulması.
 | V9 | ENU orijini | Orijin `(0,0,0)` = **GCS'in başlangıç konumu**; `x` = Doğu, `y` = Kuzey, `z` = Yukarı, birim **metre** | Bölüm 9 bu noktayı açık bırakmıştı. GCS sabit ve sürünün referans noktası olduğu için doğal orijin; SITL'de gerçek GPS gerektirmez. |
 | V10 | Telemetri `timestamp` birimi | Unix epoch'tan beri **milisaniye** (`unsigned long long`) | Bölüm 3.5'e göre bu alan yalnızca bilgi/log amaçlı; bayatlık kararı `seq_num` ile verilir. Milisaniye log okunabilirliği için yeterli çözünürlük. |
 | V11 | `task_id` ve `transaction_id` tipi | `unsigned long` (uint32_t) | Planda tip belirtilmemişti; `seq_num` ile aynı genişlikte tutuldu, tutarlılık ve taşma payı için fazlasıyla yeterli. |
+| V12 | `DroneState` | Düğümün kendi konum/hız/batarya durumu için ayrı bir struct eklendi (`include/swarm/drone_state.hpp`) | Planda adı geçmiyordu ama hareket task'ları ve telemetri yayını için zorunlu. `PeerInfo` "başkalarını nasıl görüyorum", `DroneState` "ben neredeyim" bilgisidir. |
+| V13 | Uçuş sabitleri | Yatay hız **5 m/s**, iniş hızı **1 m/s**, varış toleransı **0,5 m**, tarama süresi **5 sn**, FailSafe değerlendirme süresi **1 sn** | Gerçek bir uçuş kontrolcüsü yok (SITL); hareket sabit hızla düz çizgi olarak modellendi. Değerler okunabilir, isimlendirilmiş sabitler olarak ilgili task başlıklarında. |
+| V14 | `FailSafeTask` davranışı | Aracı anında durdurur, kısa bir "değerlendirme" süresi bekler, sonra biter (ardından `LandingTask` işletilir) | Geçici bir ağ kesintisi kalıcı arıza gibi davranıp sürüyü gereksiz yere indirmesin diye önce durup bekliyor. |
+| V15 | `DiscoveryTask` bitiş koşulu | En az **bir** peer duyulunca **veya** 5 sn dolunca biter | Bölüm 2'deki non-blocking keşif stratejisi: 3 drone'un hepsi beklenmez, gerçek sahada bir drone hiç ayağa kalkmayabilir. |
+| V16 | Oy verecek kimse yoksa | `ConsensusTask` anında `COMMITTED` olur | Tek başına kalmış bir düğüm oylamada sonsuza kadar kilitlenmemeli. |
 
 ---
 

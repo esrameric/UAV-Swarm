@@ -92,6 +92,10 @@ public:
 
     std::size_t peer_count() const;
 
+    // Su an ONLINE olan peer sayisi. DiscoveryTask'in "en az bir peer duydum mu"
+    // sorusunu cevaplar.
+    std::size_t online_peer_count() const;
+
 private:
     // std::map: anahtar-değer saklayan, anahtara göre sıralı tutan kap.
     // 3-4 peer'lık bir tabloda performans önemsiz; sıralı olması logları

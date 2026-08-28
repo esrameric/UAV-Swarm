@@ -104,7 +104,17 @@ target_compile_options(swarm_msgs PRIVATE -w)
 # Uygulama mantigi buraya toplanir; hem main.cpp hem de testler bu kutuphaneye
 # baglanir. Boylece ayni kod iki yerde ayri ayri derlenmez.
 add_library(swarm_core STATIC
-    src/peer_manager.cpp)
+    src/peer_manager.cpp
+    src/task/motion.cpp
+    src/task/init_task.cpp
+    src/task/discovery_task.cpp
+    src/task/consensus_task.cpp
+    src/task/idle_task.cpp
+    src/task/scout_search_task.cpp
+    src/task/go_to_target_task.cpp
+    src/task/hover_task.cpp
+    src/task/fail_safe_task.cpp
+    src/task/landing_task.cpp)
 
 # PUBLIC include: swarm_core'a baglanan herkes #include "swarm/..." yazabilsin.
 target_include_directories(swarm_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -151,3 +161,4 @@ swarm_add_unit_test(test_message_types)
 swarm_add_unit_test(test_peer_info)
 swarm_add_unit_test(test_peer_manager)
 swarm_add_unit_test(test_task)
+swarm_add_unit_test(test_tasks)
