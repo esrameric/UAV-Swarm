@@ -12,3 +12,7 @@ generated/
 .idea/
 *.swp
 .DS_Store
+
+# Kurumsal TLS-inspection kok sertifikalari: build sirasinda host'tan
+# kopyalanir, depoda tutulmaz (bkz. docker/ca-certificates/README.md)
+docker/ca-certificates/*.crt

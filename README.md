@@ -120,6 +120,30 @@ GCS 8 saniye keşif bekledikten sonra sırayla iki görev teklif eder; drone'lar
 oy verir, oybirliği sağlanırsa görev emri yayınlanır ve roller kendi
 görevlerine geçer.
 
+## Docker ile Çalıştırma
+
+İmajı derleyin (ilk derleme Fast DDS'i kaynaktan kurduğu için 15–25 dakika
+sürer; sonraki derlemeler katman önbelleği sayesinde çok hızlıdır):
+
+```bash
+bash tools/build_docker_image.sh
+```
+
+Dört düğümü ayağa kaldırın:
+
+```bash
+docker compose -f docker/docker-compose.yml up
+```
+
+Kapatmak için:
+
+```bash
+docker compose -f docker/docker-compose.yml down
+```
+
+`docker` grubunda değilseniz komutların başına `sudo` ekleyin veya
+`DOCKER="sudo docker"` ortam değişkenini kullanın.
+
 ## Dizin Yapısı
 
 ```
@@ -176,6 +200,7 @@ yapılmış?" sorusunun cevabını tek yerde bulması.
 | V25 | GCS görev senaryosu | GCS, keşif için 8 sn bekler; sonra sırayla **iki** görev teklif eder: `SCOUT` → (80, 40), ardından `STRIKER` → (150, −60) | Plan GCS'in görev emri vereceğini söylüyor ama içeriğini tanımlamıyordu. İki görev, heterojen rol ayrımının (Faz 6.6) gerçek bir akışta gözlemlenmesini sağlıyor. |
 | V26 | `INITIAL_BATTERY` env değişkeni | Düğümün başlangıç bataryası (varsayılan 100) | Faz 6.3'teki NACK senaryosunu kurmanın yolu: bataryası kritik olan drone consensus'ta `NACK` verir. Planda yok, ama 6.3'ün test edilebilmesi için gerekli. |
 | V27 | Görev kuyruğuna erişim | GCS oylama başlatmak için kuyruğa **doğrudan dokunmaz**; `SwarmManager::request_consensus()` ile istek bırakır, kuyruğu Task Engine düzenler | İlk uygulamada `GcsController` kuyruğa ana thread'den dokunuyordu — bu, "task_queue'ya yalnızca Thread 3 dokunur" tasarımını bozan gerçek bir veri yarışıydı ve `on_enter()` atlandığı için oylamayı anında zaman aşımına düşürüyordu. |
+| V28 | İmaj derleme script'i | `docker build` doğrudan çağrılmaz; `tools/build_docker_image.sh` kullanılır | Kurumsal TLS-inspection proxy'si arkasındaki makinelerde host'un kök sertifikaları build context'ine kopyalanmalı, yoksa `fastddsgen`'in Gradle indirmesi TLS doğrulamasında kalıyor. **Java kendi ayrı truststore'unu kullandığı için** sistem sertifikalarını kurmak tek başına yetmiyor. Script sertifikaları build sonrası siler; proxy yoksa hiçbir şey yapmaz. |
 
 ---
 

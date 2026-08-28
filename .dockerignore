@@ -1,0 +1,19 @@
+# Derleme çıktıları imaja girmemeli: container içinde yeniden derlenecek ve
+# host'un ikili dosyaları imajın mimarisiyle uyuşmayabilir.
+build/
+install/
+log/
+
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Faz 0 doğrulama araçları (fastdds.repos hariç, o Dockerfile'da gerekli)
+tools/build_docker_image.sh
+tools/multicast_check/
+tools/verify_*.sh
+tools/install_fastdds.sh
+tools/fastdds_env.sh
+
+README.md
