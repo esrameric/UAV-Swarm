@@ -46,8 +46,14 @@ void PeerManager::on_heartbeat(
 
 bool PeerManager::on_telemetry(
         const Telemetry& telemetry,
-        std::chrono::steady_clock::time_point now)
+        std::chrono::steady_clock::time_point now,
+        bool* yeni_akis_basladi)
 {
+    if (yeni_akis_basladi != nullptr)
+    {
+        *yeni_akis_basladi = false;
+    }
+
     // find(): anahtarı arar, bulamazsa end() döner. operator[]'in aksine
     // tabloya kayıt EKLEMEZ — telemetri, heartbeat'le tanışmadığımız bir
     // peer'ı tabloya sokmamalı.
@@ -59,6 +65,19 @@ bool PeerManager::on_telemetry(
 
     PeerRecord& kayit = bulunan->second;
 
+    // --- Restart tespiti ----------------------------------------------------
+    // Sayaç büyük bir sıçramayla geriye gittiyse gönderici yeniden başlamıştır
+    // (bkz. RESTART_TESPIT_ESIGI). Bu durumda takibi sıfırlıyoruz ki taze veri
+    // "bayat" diye reddedilmesin. Bu, OFFLINE -> ONLINE sıfırlamasının
+    // yakalayamadığı "hızlı restart" durumunu kapatan güvenlik ağıdır.
+    const bool buyuk_geri_sicrama =
+            (telemetry.seq_num() + RESTART_TESPIT_ESIGI) < kayit.info.last_seen_seq;
+
+    if (buyuk_geri_sicrama)
+    {
+        kayit.info.last_seen_seq = 0;
+    }
+
     // Bayatlık kontrolü: yalnızca sayacı İLERLETEN paketler kabul edilir.
     // UDP paket sırasını bozabildiği için bu kontrol şart. Eşit olan da
     // reddedilir (aynı paketin tekrarı).
@@ -68,6 +87,13 @@ bool PeerManager::on_telemetry(
     if (telemetry.seq_num() <= kayit.info.last_seen_seq)
     {
         return false;
+    }
+
+    if (yeni_akis_basladi != nullptr)
+    {
+        // Sayaç sıfırdan başlıyorsa bu, o peer'dan gelen ilk pakettir:
+        // ya hiç duymamıştık ya da az önce restart tespit edildi.
+        *yeni_akis_basladi = (kayit.info.last_seen_seq == 0);
     }
 
     kayit.info.last_seen_seq = telemetry.seq_num();

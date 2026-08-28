@@ -223,3 +223,74 @@ TEST(PeerManager, BirPeerinOfflineOlmasiDigeriniEtkilemez)
     EXPECT_EQ(yonetici.status_of(2), swarm::PeerStatus::ONLINE);
     EXPECT_EQ(yonetici.find(2)->info.last_seen_seq, 50u);
 }
+
+// ---------------------------------------------------------------------------
+//  Hızlı restart: OFFLINE'a hiç düşmeden yeniden başlama
+//
+//  Faz 6.5 entegrasyon testinin ortaya çıkardığı açık. OFFLINE -> ONLINE
+//  sıfırlaması tek başına yetmiyor: bir drone heartbeat zaman aşımından
+//  (3 sn) daha hızlı yeniden başlarsa hiç OFFLINE görünmez, sayaç
+//  sıfırlanmaz ve taze verisi sessizce reddedilir.
+// ---------------------------------------------------------------------------
+
+TEST(PeerManager, HizliRestartBuyukGeriSicramaylaTespitEdilir)
+{
+    swarm::PeerManager yonetici{3000ms};
+    yonetici.on_heartbeat(heartbeat_olustur(1), BASLANGIC);
+
+    // Sayaç epeyce ilerlemiş.
+    ASSERT_TRUE(yonetici.on_telemetry(telemetri_olustur(1, 5000), BASLANGIC));
+
+    // Drone 1 saniyede yeniden başlıyor: OFFLINE'a hiç düşmüyor.
+    yonetici.on_heartbeat(heartbeat_olustur(1), BASLANGIC + 1s);
+    ASSERT_EQ(yonetici.status_of(1), swarm::PeerStatus::ONLINE);
+    ASSERT_EQ(yonetici.find(1)->info.last_seen_seq, 5000u)
+            << "OFFLINE'a dusmedigi icin sayac sifirlanmamis olmali";
+
+    // Restart sonrası taze telemetri 1'den başlıyor. Büyük geri sıçrama
+    // tespit edilip takip sıfırlanmalı ve paket KABUL edilmeli.
+    bool yeni_akis = false;
+    EXPECT_TRUE(yonetici.on_telemetry(telemetri_olustur(1, 1), BASLANGIC + 1s, &yeni_akis));
+    EXPECT_TRUE(yeni_akis);
+    EXPECT_EQ(yonetici.find(1)->info.last_seen_seq, 1u);
+}
+
+TEST(PeerManager, KucukGeriSicramaHalaBayatSayilir)
+{
+    // Restart koruması, asıl bayatlık korumasını ZAYIFLATMAMALI. UDP'de
+    // sıra bozulması birkaç paketliktir; böyle bir paket hâlâ atılmalı.
+    swarm::PeerManager yonetici{3000ms};
+    yonetici.on_heartbeat(heartbeat_olustur(1), BASLANGIC);
+    ASSERT_TRUE(yonetici.on_telemetry(telemetri_olustur(1, 5000), BASLANGIC));
+
+    EXPECT_FALSE(yonetici.on_telemetry(telemetri_olustur(1, 4990), BASLANGIC));
+    EXPECT_EQ(yonetici.find(1)->info.last_seen_seq, 5000u);
+}
+
+TEST(PeerManager, RestartEsigiSinirindaDavranis)
+{
+    swarm::PeerManager yonetici{3000ms};
+    yonetici.on_heartbeat(heartbeat_olustur(1), BASLANGIC);
+    ASSERT_TRUE(yonetici.on_telemetry(telemetri_olustur(1, 1000), BASLANGIC));
+
+    // Eşik kadar geri: henüz restart sayılmaz, bayat kabul edilir.
+    const uint32_t esik = swarm::PeerManager::RESTART_TESPIT_ESIGI;
+    EXPECT_FALSE(yonetici.on_telemetry(telemetri_olustur(1, 1000 - esik), BASLANGIC));
+
+    // Eşiğin bir fazlası kadar geri: restart sayılır, kabul edilir.
+    EXPECT_TRUE(yonetici.on_telemetry(telemetri_olustur(1, 1000 - esik - 1), BASLANGIC));
+}
+
+TEST(PeerManager, IlkTelemetriYeniAkisOlarakIsaretlenir)
+{
+    swarm::PeerManager yonetici;
+    yonetici.on_heartbeat(heartbeat_olustur(1), BASLANGIC);
+
+    bool yeni_akis = false;
+    EXPECT_TRUE(yonetici.on_telemetry(telemetri_olustur(1, 1), BASLANGIC, &yeni_akis));
+    EXPECT_TRUE(yeni_akis);
+
+    // İkinci paket yeni akış değil.
+    EXPECT_TRUE(yonetici.on_telemetry(telemetri_olustur(1, 2), BASLANGIC, &yeni_akis));
+    EXPECT_FALSE(yeni_akis);
+}

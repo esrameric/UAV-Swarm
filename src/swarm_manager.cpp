@@ -619,14 +619,10 @@ bool SwarmManager::on_telemetry_received(const Telemetry& telemetry, TimePoint n
 
     const std::lock_guard<std::mutex> kilit(peer_mutex_);
 
-    // Sayaç sıfırdaysa bu, o peer'dan alınan İLK telemetri paketidir
-    // (ya hiç duymamıştık ya da restart sonrası sayaç sıfırlanmıştı).
-    const PeerRecord* kayit = peer_table_.find(telemetry.drone_id());
-    const bool ilk_paket = (kayit != nullptr) && (kayit->info.last_seen_seq == 0);
+    bool yeni_akis = false;
+    const bool kabul_edildi = peer_table_.on_telemetry(telemetry, now, &yeni_akis);
 
-    const bool kabul_edildi = peer_table_.on_telemetry(telemetry, now);
-
-    if (kabul_edildi && ilk_paket)
+    if (kabul_edildi && yeni_akis)
     {
         // Sadece akış başlarken bir kez: 20-50 Hz'lik akışı loglamak
         // çıktıyı okunamaz hale getirirdi.

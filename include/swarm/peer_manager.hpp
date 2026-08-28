@@ -58,6 +58,20 @@ public:
     // Bir peer'dan bu süre boyunca heartbeat gelmezse OFFLINE sayılır.
     static constexpr std::chrono::milliseconds VARSAYILAN_HEARTBEAT_TIMEOUT{3000};
 
+    // RESTART TESPİT EŞİĞİ.
+    //
+    // Normalde last_seen_seq, peer OFFLINE'dan ONLINE'a geçtiğinde sıfırlanır
+    // (Bölüm 3.5). Ama bu tek başına yetmiyor: bir drone heartbeat zaman
+    // aşımından (3 sn) DAHA HIZLI yeniden başlarsa hiç OFFLINE görünmez,
+    // sayaç sıfırlanmaz ve restart sonrası gelen taze veri (seq=1) eski
+    // yüksek değere takılıp sessizce "bayat" diye reddedilir. Sayaç 10 Hz
+    // ilerlediği için eski değeri yakalamak dakikalar, hatta saatler sürebilir.
+    //
+    // Çözüm: seq numarası BÜYÜK bir sıçramayla geriye gittiyse bu, ağ
+    // kaynaklı sıra bozulması değil, göndericinin yeniden başlamasıdır.
+    // UDP'de sıra bozulması birkaç paketliktir; yüzlerce paketlik değil.
+    static constexpr uint32_t RESTART_TESPIT_ESIGI = 100;
+
     // `explicit`: tek parametreli kurucuların istenmeyen örtük (implicit)
     // dönüşüm yapmasını engeller. Bu olmasaydı bir fonksiyona yanlışlıkla
     // süre verildiğinde derleyici onu sessizce PeerManager'a çevirebilirdi.
@@ -74,9 +88,13 @@ public:
     // Bir telemetri paketi alındığında çağrılır.
     // Dönüş: paket kabul edildiyse true, bayat/tekrar olduğu için
     //        atıldıysa false.
+    //
+    // `yeni_akis_basladi` verilirse, bu paketin o peer'dan gelen ilk paket
+    // olup olmadığı (sayaç sıfırdan başlıyor mu) oraya yazılır.
     bool on_telemetry(
             const Telemetry& telemetry,
-            std::chrono::steady_clock::time_point now);
+            std::chrono::steady_clock::time_point now,
+            bool* yeni_akis_basladi = nullptr);
 
     // Zaman aşımına uğramış peer'ları OFFLINE olarak işaretler.
     // Düzenli aralıklarla (heartbeat döngüsünden) çağrılması beklenir.
