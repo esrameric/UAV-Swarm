@@ -1,0 +1,46 @@
+// ============================================================================
+//  /swarm/telemetry  —  Konum, hız ve batarya akışı
+//
+//  Protokol/QoS : UDP, Best-Effort, Multicast, 20-50 Hz  (Bölüm 3.4)
+//
+//  BAYATLIK KONTROLÜ SAATLE DEĞİL, `seq_num` İLE YAPILIR.
+//  Her drone kendi telemetri akışı için hiç sıfırlanmayan tek bir sayaç
+//  tutar. Alıcı, gelen seq_num'u o gönderici için sakladığı last_seen_seq
+//  ile kıyaslar; küçük veya eşitse paketi atar. UDP paket sırasını
+//  bozabildiği için bu şart. `timestamp` alanı yalnızca bilgi/log amaçlıdır,
+//  bayatlık kararında KULLANILMAZ.
+//
+//  Koordinat sistemi: yerel Kartezyen / ENU (metre). Ham GPS derecesi değil.
+//    x = Doğu (East), y = Kuzey (North), z = Yukarı (Up)
+//    Orijin (0,0,0) = GCS'in başlangıç konumu  (bkz. README varsayım V9)
+// ============================================================================
+
+module swarm {
+
+struct Telemetry
+{
+    octet drone_id;
+
+    // Bayatlık/sıralama kontrolünün tek kaynağı. 50 Hz'de taşması için
+    // ~2,7 yıl kesintisiz yayın gerekir; bu pay bilinçli olarak korunuyor.
+    unsigned long seq_num;
+
+    // Konum (metre, ENU)
+    double x;
+    double y;
+    double z;
+
+    // Hız (metre/saniye, ENU)
+    double vx;
+    double vy;
+    double vz;
+
+    // Batarya yüzdesi, 0-100. Diğer küçük alanlarla tutarlı olsun diye
+    // float değil octet (uint8_t) seçildi (Bölüm 3.5).
+    octet battery;
+
+    // Unix epoch'tan beri geçen milisaniye. YALNIZCA bilgi/log amaçlı.
+    unsigned long long timestamp;
+};
+
+};  // module swarm

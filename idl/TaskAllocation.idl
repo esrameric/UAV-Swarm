@@ -1,0 +1,31 @@
+// ============================================================================
+//  /swarm/task_alloc  —  Görev dağıtım emri (GCS -> sürü)
+//
+//  Protokol/QoS : TCP, Reliable, Transient Local  (Bölüm 3.4)
+//  Neden Reliable: Görev emrinin kaybolması kabul edilemez.
+//  Neden Transient Local: Emirden SONRA ağa katılan bir düğüm de son emri
+//  alabilsin diye (yayıncı son örneği saklar).
+//
+//  Emir bir drone'a değil bir ROLE gönderilir; hangi child task'ın kuyruğa
+//  gireceğine TaskAllocationEngine karar verir (Bölüm 3.3).
+// ============================================================================
+
+#include "SwarmEnums.idl"
+
+module swarm {
+
+struct TaskAllocation
+{
+    // Bu görevin kimliği; loglarda ve consensus'ta göreve atıfta bulunur.
+    unsigned long task_id;
+
+    // Emrin hedeflediği rol: SCOUT -> ScoutSearchTask,
+    //                        STRIKER -> GoToTargetTask
+    DroneRole target_role;
+
+    // Hedef konum (metre, yerel ENU — bkz. Telemetry.idl)
+    double target_x;
+    double target_y;
+};
+
+};  // module swarm

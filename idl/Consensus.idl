@@ -1,0 +1,35 @@
+// ============================================================================
+//  /swarm/consensus  —  2-Phase Commit oylama mesajı
+//
+//  Protokol/QoS : TCP, Reliable, Transient Local  (Bölüm 3.4)
+//
+//  Akış (Bölüm 3.6):
+//    1) Teklif  : GCS bir transaction_id ile "göreve başlayalım mı?" yayınlar
+//    2) Oy      : Her drone durumunu kontrol edip ACK / NACK döner
+//    3) Sonuç   : Hepsi ACK -> görev başlar.
+//                 Bir NACK veya 5 sn içinde tam ACK yoksa -> görev iptal,
+//                 sürü IdleTask'a döner.
+// ============================================================================
+
+#include "SwarmEnums.idl"
+
+module swarm {
+
+struct Consensus
+{
+    // Hangi oylama turuna ait olduğu. Aynı anda birden fazla teklif
+    // dolaşırsa oyların karışmaması bu alanla sağlanır.
+    unsigned long transaction_id;
+
+    // Oyu veren (veya teklifi yapan) düğümün kimliği.
+    octet sender_id;
+
+    // PENDING / NACK / ACK — üç durumlu. "Cevap yok" ile "açık NACK"
+    // farklı şeylerdir (Bölüm 3.5).
+    Vote vote;
+
+    // Consensus mesajlarının kendi sıra takibi.
+    unsigned long seq_num;
+};
+
+};  // module swarm

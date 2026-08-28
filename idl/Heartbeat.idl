@@ -1,0 +1,43 @@
+// ============================================================================
+//  /swarm/heartbeat  —  "Ben ayaktayım ve şu an bunu yapıyorum" duyurusu
+//
+//  Protokol/QoS : UDP, Best-Effort, Multicast, ~10 Hz  (Bölüm 3.4)
+//  Neden Best-Effort: Yüksek frekanslı bir canlılık sinyali; tek bir paketin
+//  kaybolması önemli değil, önemli olan verinin TAZE olması.
+//
+//  ÖNEMLİ İKİ TASARIM KARARI:
+//
+//  1) `ip_address` alanı BİLİNÇLİ OLARAK YOK.
+//     Fast DDS kendi discovery mekanizmasıyla (SPDP/SEDP) katılımcıların ağ
+//     adreslerini zaten otomatik takip ediyor. Sistemde DDS dışında hiçbir
+//     haberleşme (video, dosya transferi) olmayacağı için uygulama katmanının
+//     IP taşımasına gerek yok.
+//
+//  2) Gönderenin TIMESTAMP'i BİLİNÇLİ OLARAK YOK.
+//     "3 saniyedir ses yok" kontrolü, gönderenin mesaja gömdüğü saatle değil,
+//     ALICININ paketi aldığı andaki kendi steady_clock değeriyle yapılır
+//     (PeerInfo::last_heartbeat_local). Gerekçe: container'ların duvar
+//     saatleri senkron olmayabilir (NTP yoksa clock drift kaçınılmaz).
+// ============================================================================
+
+#include "SwarmEnums.idl"
+
+module swarm {
+
+struct Heartbeat
+{
+    // Gönderen düğümün kimliği. GCS = 0, drone'lar 1..3.
+    octet drone_id;
+
+    // Bu düğüm bir drone mu, GCS mi?
+    NodeType node_type;
+
+    // Yalnızca node_type == DRONE iken anlamlıdır (Bölüm 3.5).
+    DroneRole role;
+
+    // "Şu an ne yapıyor" — aktif Task'ın tipi. Task Engine'e geçildikten
+    // sonra durumun doğru karşılığı budur; eski bir SwarmState alanı yok.
+    TaskType current_task;
+};
+
+};  // module swarm

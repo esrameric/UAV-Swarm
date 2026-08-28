@@ -114,6 +114,9 @@ yapılmış?" sorusunun cevabını tek yerde bulması.
 | V6 | ROS 2 çakışması | Derleme script'leri `PATH`'ten `/opt/ros/*` girdilerini temizler | Geliştirme makinesinde ROS 2 Humble kurulu. CMake, `PATH`'teki `.../bin` girdilerinin üst dizinini de `find_package` ön eki olarak tarar; bu yüzden ROS 2'nin `ament` paketleri Fast DDS derlemesine sızıp hata veriyordu. Proje ROS 2 kullanmıyor (Bölüm 2). |
 | V7 | Multicast sondası | Faz 0.5 testi `python:3.12-alpine` imajı + iki küçük Python script'i ile yapılır | Ortam testi C++ kodundan bağımsız olmalı; Python'ın `socket` modülü multicast join/send işini 10 satırda, ek bağımlılık olmadan yapıyor. |
 | V8 | Multicast adresi | Sondalar `239.255.0.1:7400` kullanır | Fast DDS'in varsayılan SPDP discovery adresi/portu; testin gerçek kullanım senaryosuyla birebir örtüşmesi için. |
+| V9 | ENU orijini | Orijin `(0,0,0)` = **GCS'in başlangıç konumu**; `x` = Doğu, `y` = Kuzey, `z` = Yukarı, birim **metre** | Bölüm 9 bu noktayı açık bırakmıştı. GCS sabit ve sürünün referans noktası olduğu için doğal orijin; SITL'de gerçek GPS gerektirmez. |
+| V10 | Telemetri `timestamp` birimi | Unix epoch'tan beri **milisaniye** (`unsigned long long`) | Bölüm 3.5'e göre bu alan yalnızca bilgi/log amaçlı; bayatlık kararı `seq_num` ile verilir. Milisaniye log okunabilirliği için yeterli çözünürlük. |
+| V11 | `task_id` ve `transaction_id` tipi | `unsigned long` (uint32_t) | Planda tip belirtilmemişti; `seq_num` ile aynı genişlikte tutuldu, tutarlılık ve taşma payı için fazlasıyla yeterli. |
 
 ---
 
