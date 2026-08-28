@@ -256,3 +256,116 @@ TEST(SwarmManagerKuyruk, EszamanliKomutEklemeVeriYarisiYaratmaz)
 
     kuyruklari_bosalt(yonetici);
 }
+
+// ============================================================================
+//  Faz 3.3 — init() ve run()
+// ============================================================================
+
+TEST(SwarmManagerYasamDongusu, InitKimligiAyarlar)
+{
+    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
+
+    swarm::SwarmConfig config;
+    config.drone_id = 2;
+    config.node_type = swarm::NodeType::DRONE;
+    config.role = swarm::DroneRole::STRIKER;
+    config.domain_id = 42;
+
+    yonetici.init(config);
+
+    EXPECT_EQ(yonetici.config().drone_id, 2u);
+    EXPECT_EQ(yonetici.config().node_type, swarm::NodeType::DRONE);
+    EXPECT_EQ(yonetici.config().role, swarm::DroneRole::STRIKER);
+    EXPECT_EQ(yonetici.config().domain_id, 42u);
+}
+
+TEST(SwarmManagerYasamDongusu, InitKuyruklariVeDurumuSifirlar)
+{
+    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
+
+    // Önce kirletiyoruz...
+    yonetici.add_command(swarm::Command::gorev_emri(
+            gorev_emri_olustur(1, swarm::DroneRole::SCOUT)));
+    yonetici.push_task(std::make_unique<swarm::InitTask>());
+    yonetici.drone_state().x = 123.0;
+    ASSERT_GT(yonetici.command_queue_size(), 0u);
+
+    // ...init temizlemeli.
+    yonetici.init(swarm::SwarmConfig{});
+
+    EXPECT_EQ(yonetici.command_queue_size(), 0u);
+    EXPECT_EQ(yonetici.task_queue_size(), 0u);
+    EXPECT_EQ(yonetici.peer_count(), 0u);
+    EXPECT_DOUBLE_EQ(yonetici.drone_state().x, 0.0);
+}
+
+TEST(SwarmManagerYasamDongusu, GcsKimligiKurulabilir)
+{
+    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
+
+    swarm::SwarmConfig config;
+    config.drone_id = 0;
+    config.node_type = swarm::NodeType::GCS;
+
+    yonetici.init(config);
+
+    EXPECT_EQ(yonetici.config().node_type, swarm::NodeType::GCS);
+    EXPECT_EQ(yonetici.config().drone_id, 0u);
+}
+
+TEST(SwarmManagerYasamDongusu, RunThreadleriBaslatirStopBekler)
+{
+    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
+    yonetici.init(swarm::SwarmConfig{});
+
+    EXPECT_FALSE(yonetici.is_running());
+
+    yonetici.run();
+    EXPECT_TRUE(yonetici.is_running());
+
+    // stop() thread'lerin bitmesini BEKLER (join). Dönüş sonrası hiçbir
+    // thread çalışmıyor olmalı.
+    yonetici.stop();
+    EXPECT_FALSE(yonetici.is_running());
+}
+
+TEST(SwarmManagerYasamDongusu, IkinciRunCagrisiEtkisiz)
+{
+    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
+    yonetici.init(swarm::SwarmConfig{});
+
+    yonetici.run();
+    yonetici.run();  // ikinci çağrı yeni thread AÇMAMALI
+    EXPECT_TRUE(yonetici.is_running());
+
+    yonetici.stop();
+    EXPECT_FALSE(yonetici.is_running());
+}
+
+TEST(SwarmManagerYasamDongusu, CalismayanDugumdeStopGuvenli)
+{
+    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
+    yonetici.init(swarm::SwarmConfig{});
+
+    // Hiç run() çağrılmadan stop() çağırmak çökmemelidir.
+    yonetici.stop();
+    yonetici.stop();
+
+    EXPECT_FALSE(yonetici.is_running());
+}
+
+TEST(SwarmManagerYasamDongusu, BasDurBasDurDongusuCalisir)
+{
+    // Thread'ler düzgün join edildiği için düğüm tekrar tekrar
+    // başlatılıp durdurulabilmeli.
+    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
+    yonetici.init(swarm::SwarmConfig{});
+
+    for (int tur = 0; tur < 3; ++tur)
+    {
+        yonetici.run();
+        ASSERT_TRUE(yonetici.is_running());
+        yonetici.stop();
+        ASSERT_FALSE(yonetici.is_running());
+    }
+}

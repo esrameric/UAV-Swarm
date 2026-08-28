@@ -28,16 +28,36 @@
 //                      maliyet ve yanlış bir "burada yarış var" sinyalidir.
 #pragma once
 
+#include <atomic>
+#include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <thread>
 
+#include "SwarmEnums.hpp"
 #include "swarm/command.hpp"
+#include "swarm/drone_state.hpp"
 #include "swarm/peer_manager.hpp"
 #include "swarm/task/task.hpp"
 
 namespace swarm {
+
+// ---------------------------------------------------------------------------
+//  SwarmConfig — bu düğümün kimliği
+//
+//  Faz 4.3'te ortam değişkenlerinden (DRONE_ID, NODE_TYPE, ROLE,
+//  ROS_DOMAIN_ID) doldurulup init()'e verilecek.
+// ---------------------------------------------------------------------------
+struct SwarmConfig
+{
+    uint8_t drone_id = 0;                       // GCS = 0, drone'lar 1..3
+    NodeType node_type = NodeType::DRONE;
+    DroneRole role = DroneRole::SCOUT;          // yalnızca DRONE için anlamlı
+    uint32_t domain_id = 42;                    // DDS domain (ROS_DOMAIN_ID)
+};
 
 class SwarmManager
 {
@@ -56,6 +76,31 @@ public:
     SwarmManager& operator=(const SwarmManager&) = delete;
     SwarmManager(SwarmManager&&) = delete;
     SwarmManager& operator=(SwarmManager&&) = delete;
+
+    // --- Yaşam döngüsü -------------------------------------------------------
+
+    // Bellek yapılarını hazırlar ve bu düğümün kimliğini belirler.
+    // run()'dan ÖNCE çağrılmalıdır. Yeniden çağrılabilir (yeniden
+    // yapılandırma); çalışan bir düğümde çağrılırsa önce stop() gerekir.
+    void init(const SwarmConfig& config);
+
+    // Bölüm 3.2'deki 3 thread'i eş zamanlı başlatır. Bloklamaz; thread'ler
+    // arka planda çalışmaya devam eder.
+    // Zaten çalışıyorsa hiçbir şey yapmaz.
+    void run();
+
+    // Thread'lere durma işareti verir ve hepsinin bitmesini bekler (join).
+    // Zaten durmuşsa hiçbir şey yapmaz.
+    void stop();
+
+    bool is_running() const;
+
+    const SwarmConfig& config() const { return config_; }
+
+    // Bu düğümün kendi uçuş durumu. Hareket task'ları bunu günceller,
+    // telemetri yayını buradan okur.
+    DroneState& drone_state() { return kendi_durumu_; }
+    const DroneState& drone_state() const { return kendi_durumu_; }
 
     // --- Komut kuyruğu (command_mutex_ korumalı) -----------------------------
 
@@ -96,6 +141,12 @@ private:
     SwarmManager() = default;
     ~SwarmManager() = default;
 
+    // --- Thread gövdeleri (Faz 3.4) ------------------------------------------
+
+    void drone_list_dongusu();       // Thread 1 — heartbeat yayını + peer takibi
+    void komut_dongusu();            // Thread 2 — gelen komutların işlenmesi
+    void komut_yurutme_dongusu();    // Thread 3 — Task Engine
+
     // --- Paylaşılan durum ----------------------------------------------------
 
     // std::mutex ("mutual exclusion" = karşılıklı dışlama): aynı anda
@@ -118,6 +169,29 @@ private:
     // Yalnızca Thread 3 (Task Engine) dokunduğu için mutex'i yok.
     // Görevler unique_ptr ile tutulur: kuyruktan çıkan görev otomatik silinir.
     std::deque<std::unique_ptr<Task>> task_queue_;
+
+    // --- Kimlik ve kendi durumu ----------------------------------------------
+
+    SwarmConfig config_{};
+    DroneState kendi_durumu_{};
+
+    // --- Thread yönetimi -----------------------------------------------------
+
+    // std::atomic<bool>: birden fazla thread'in kilitsiz, GÜVENLE okuyup
+    // yazabildiği bayrak. Sıradan bir `bool` burada veri yarışı olurdu:
+    // derleyici onu bir yazmaca (register) alıp döngüden çıkarabilir ve
+    // thread durma işaretini hiç görmeyebilirdi.
+    std::atomic<bool> calisiyor_{false};
+
+    std::thread drone_list_threadi_;
+    std::thread komut_threadi_;
+    std::thread komut_yurutme_threadi_;
+
+    // Thread döngülerinin tur arası bekleme süreleri.
+    // Heartbeat ~10 Hz (Bölüm 3.4), diğerleri daha sık dönebilir.
+    static constexpr std::chrono::milliseconds HEARTBEAT_PERIYODU{100};
+    static constexpr std::chrono::milliseconds KOMUT_PERIYODU{20};
+    static constexpr std::chrono::milliseconds TASK_ENGINE_PERIYODU{20};
 };
 
 }  // namespace swarm

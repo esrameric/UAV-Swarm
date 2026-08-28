@@ -1,5 +1,7 @@
 #include "swarm/swarm_manager.hpp"
 
+#include <utility>
+
 namespace swarm {
 
 SwarmManager& SwarmManager::get_instance()
@@ -12,6 +14,109 @@ SwarmManager& SwarmManager::get_instance()
     return tek_ornek;
 }
 
+
+// ---------------------------------------------------------------------------
+//  Yaşam döngüsü
+// ---------------------------------------------------------------------------
+
+void SwarmManager::init(const SwarmConfig& config)
+{
+    config_ = config;
+
+    // Yeniden yapılandırmada eski durumdan kalıntı kalmasın.
+    kendi_durumu_ = DroneState{};
+
+    {
+        const std::lock_guard<std::mutex> kilit(peer_mutex_);
+        peer_table_ = PeerManager{};
+    }
+    {
+        const std::lock_guard<std::mutex> kilit(command_mutex_);
+        command_queue_.clear();
+    }
+    task_queue_.clear();
+}
+
+void SwarmManager::run()
+{
+    if (calisiyor_)
+    {
+        return;  // zaten çalışıyor
+    }
+
+    calisiyor_ = true;
+
+    // Üç thread eş zamanlı başlar. Ağ dinlemek (I/O ağırlıklı) ile görev
+    // yürütmek (hesap ağırlıklı) ayrı thread'lerde olduğu için biri
+    // diğerini bekletmez (Bölüm 2).
+    //
+    // `this` yakalaması: lambda, SwarmManager'ın üye fonksiyonunu
+    // çağırabilmek için nesnenin kendisine erişmek zorunda.
+    drone_list_threadi_ = std::thread([this]() { drone_list_dongusu(); });
+    komut_threadi_ = std::thread([this]() { komut_dongusu(); });
+    komut_yurutme_threadi_ = std::thread([this]() { komut_yurutme_dongusu(); });
+}
+
+void SwarmManager::stop()
+{
+    if (!calisiyor_)
+    {
+        return;
+    }
+
+    // Önce durma işaretini veriyoruz; thread'ler döngü başında bunu görüp
+    // kendiliğinden çıkacak.
+    calisiyor_ = false;
+
+    // joinable(): thread gerçekten başlatılmış ve henüz join edilmemiş mi?
+    // join edilmemiş bir std::thread yok edilirse program std::terminate
+    // ile aniden sonlanır — bu yüzden hepsini bekliyoruz.
+    if (drone_list_threadi_.joinable())
+    {
+        drone_list_threadi_.join();
+    }
+    if (komut_threadi_.joinable())
+    {
+        komut_threadi_.join();
+    }
+    if (komut_yurutme_threadi_.joinable())
+    {
+        komut_yurutme_threadi_.join();
+    }
+}
+
+bool SwarmManager::is_running() const
+{
+    return calisiyor_;
+}
+
+// ---------------------------------------------------------------------------
+//  Thread gövdeleri — gerçek işleri Faz 3.4'te dolduruluyor
+// ---------------------------------------------------------------------------
+
+void SwarmManager::drone_list_dongusu()
+{
+    while (calisiyor_)
+    {
+        std::this_thread::sleep_for(HEARTBEAT_PERIYODU);
+    }
+}
+
+void SwarmManager::komut_dongusu()
+{
+    while (calisiyor_)
+    {
+        std::this_thread::sleep_for(KOMUT_PERIYODU);
+    }
+}
+
+void SwarmManager::komut_yurutme_dongusu()
+{
+    while (calisiyor_)
+    {
+        std::this_thread::sleep_for(TASK_ENGINE_PERIYODU);
+    }
+}
 
 // ---------------------------------------------------------------------------
 //  Komut kuyruğu

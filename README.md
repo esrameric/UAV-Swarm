@@ -334,6 +334,16 @@ sahiplik kuralı), yalnızca **taşınabilir**. `std::move`, "bu nesnenin
 sahipliğini devrediyorum" demenin yoludur; taşımadan sonra çağıranın elindeki
 işaretçi boşalır.
 
+**`std::atomic<bool>`** — Birden fazla thread'in kilitsiz, güvenle okuyup
+yazabildiği bayrak. Sıradan bir `bool` burada veri yarışı olurdu: derleyici
+onu bir yazmaca (register) alıp döngüden çıkarabilir ve thread durma
+işaretini hiç görmeyebilirdi.
+
+**`joinable()`** — Bir `std::thread` gerçekten başlatılmış ve henüz `join`
+edilmemiş mi? `join` edilmemiş bir thread nesnesi yok edilirse program
+`std::terminate` ile aniden sonlanır; bu yüzden `stop()` hepsini tek tek
+bekler.
+
 **`join()`** — Bir thread'in bitmesini beklemek. Beklenmezse ana thread önce
 bitip programı sonlandırabilir ve iş yarım kalır.
 
