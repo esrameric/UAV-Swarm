@@ -27,52 +27,52 @@ class GcsController
 {
 public:
     // Görev akışının hangi aşamasında olduğumuz.
-    enum class Durum
+    enum class State
     {
-        BOSTA,               // Aktif görev yok
-        OYLAMA,              // Teklif yayınlandı, oylar bekleniyor
-        GOREV_YAYINLANDI,    // Oybirliği sağlandı, task_alloc yayınlandı
-        IPTAL                // Oylama başarısız; görev iptal edildi
+        IDLE,               // Aktif görev yok
+        VOTING,              // Teklif yayınlandı, oylar bekleniyor
+        TASK_PUBLISHED,    // Oybirliği sağlandı, task_alloc yayınlandı
+        CANCELLED                // Oylama başarısız; görev iptal edildi
     };
 
-    explicit GcsController(SwarmManager& yonetici);
+    explicit GcsController(SwarmManager& manager);
 
     // Yeni bir görev teklif eder:
     //   - ONLINE drone'ları oy verecek düğüm listesi olarak alır
-    //   - bir ConsensusTask'ı SwarmManager'ın görev kuyruğuna koyar
+    //   - bir ConsensusTask'ı SwarmManager'ın görev queue'suna koyar
     //   - /swarm/consensus üzerinden teklifi yayınlar
     //
     // Dönüş: bu teklifin transaction_id'si.
-    uint32_t gorev_teklif_et(
-            DroneRole hedef_rol,
-            double hedef_x,
-            double hedef_y,
+    uint32_t propose_task(
+            DroneRole target_role,
+            double target_x,
+            double target_y,
             TimePoint now);
 
     // Her turda çağrılır. Oylamanın sonucunu kontrol eder; COMMITTED ise
     // görev emrini yayınlar, ABORTED ise görevi iptal eder.
-    void adim(TimePoint now);
+    void step(TimePoint now);
 
     // Terminal durumu (GOREV_YAYINLANDI / IPTAL) okunduktan sonra çağrılır;
     // durumu BOSTA'ya çeker. Olmasaydı ana döngü aynı sonucu her turda
     // tekrar tekrar raporlardı.
-    void sonucu_tuket();
+    void consume_result();
 
-    Durum durum() const { return durum_; }
-    uint32_t aktif_transaction_id() const { return aktif_transaction_id_; }
+    State state() const { return state_; }
+    uint32_t active_transaction_id() const { return active_transaction_id_; }
 
 private:
-    SwarmManager& yonetici_;
+    SwarmManager& manager_;
 
-    Durum durum_ = Durum::BOSTA;
+    State state_ = State::IDLE;
 
     // Oylama turlarını birbirinden ayıran sayaç. 1'den başlar; 0 "geçersiz"
     // anlamına gelsin diye kullanılmıyor.
-    uint32_t sonraki_transaction_id_ = 1;
-    uint32_t aktif_transaction_id_ = 0;
+    uint32_t next_transaction_id_ = 1;
+    uint32_t active_transaction_id_ = 0;
 
     // Oylama geçerse yayınlanacak emrin içeriği.
-    TaskAllocation bekleyen_emir_{};
+    TaskAllocation pending_order_{};
 };
 
 }  // namespace swarm

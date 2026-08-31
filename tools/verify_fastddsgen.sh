@@ -10,72 +10,72 @@
 
 set -uo pipefail
 
-BETIK_DIZINI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
-source "$BETIK_DIZINI/fastdds_env.sh"
+source "$SCRIPT_DIR/fastdds_env.sh"
 
-hata_sayisi=0
-basarili() { echo "  [OK]   $1"; }
-basarisiz() { echo "  [HATA] $1"; hata_sayisi=$((hata_sayisi + 1)); }
+error_count=0
+ok() { echo "  [OK]   $1"; }
+fail() { echo "  [HATA] $1"; error_count=$((error_count + 1)); }
 
 echo "== Faz 0.2: fastddsgen doğrulaması =="
 
 # --- 1) Java var mı? ---------------------------------------------------------
 if java -version >/dev/null 2>&1; then
-    basarili "java bulundu: $(java -version 2>&1 | head -1)"
+    ok "java bulundu: $(java -version 2>&1 | head -1)"
 else
-    basarisiz "java bulunamadı (openjdk-17-jdk kurulu mu?)"
+    fail "java bulunamadı (openjdk-17-jdk kurulu mu?)"
     echo "SONUC: BASARISIZ"; exit 1
 fi
 
 # --- 2) fastddsgen PATH'te mi ve sürüm veriyor mu? ---------------------------
 if ! command -v fastddsgen >/dev/null 2>&1; then
-    basarisiz "fastddsgen PATH'te bulunamadı"
+    fail "fastddsgen PATH'te bulunamadı"
     echo "SONUC: BASARISIZ"; exit 1
 fi
 # Not: `fastddsgen -version` önce JVM'in kendi sürüm satırlarını basar;
 # bizi ilgilendiren satır "fastddsgen version X.Y.Z" olanı.
-surum="$(fastddsgen -version 2>&1 | grep -i "^fastddsgen version" | head -1)"
-if [ -n "$surum" ]; then
-    basarili "fastddsgen çalışıyor: $surum"
+version="$(fastddsgen -version 2>&1 | grep -i "^fastddsgen version" | head -1)"
+if [ -n "$version" ]; then
+    ok "fastddsgen çalışıyor: $version"
 else
-    basarisiz "fastddsgen -version çıktı vermedi"
+    fail "fastddsgen -version çıktı vermedi"
 fi
 
 # --- 3) Gerçekten IDL derleyebiliyor mu? -------------------------------------
 # `mktemp -d`: geçici bir dizin oluşturur. Testi projenin içine kirletmemek için.
-GECICI="$(mktemp -d)"
+TEMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$GECICI"' EXIT
 
-cat > "$GECICI/Sonda.idl" <<'IDL'
+cat > "$TEMP_DIR/Sonda.idl" <<'IDL'
 // fastddsgen'in çalıştığını kanıtlamak için tek seferlik minik bir IDL.
 struct Sonda
 {
-    unsigned long deger;
-    string metin;
+    unsigned long value;
+    string text;
 };
 IDL
 
-if fastddsgen -replace -d "$GECICI" "$GECICI/Sonda.idl" >"$GECICI/gen.log" 2>&1; then
-    basarili "örnek IDL derlendi"
+if fastddsgen -replace -d "$TEMP_DIR" "$TEMP_DIR/Sonda.idl" >"$TEMP_DIR/gen.log" 2>&1; then
+    ok "örnek IDL derlendi"
 else
-    basarisiz "fastddsgen IDL derleyemedi:"
-    sed 's/^/         /' "$GECICI/gen.log"
+    fail "fastddsgen IDL derleyemedi:"
+    sed 's/^/         /' "$TEMP_DIR/gen.log"
 fi
 
 # Üretilmesi beklenen dosyalar (Fast DDS 3.x tip desteği)
-for beklenen in SondaPubSubTypes.cxx SondaPubSubTypes.hpp Sonda.hpp; do
-    if [ -f "$GECICI/$beklenen" ]; then
-        basarili "üretildi: $beklenen"
+for expected in SondaPubSubTypes.cxx SondaPubSubTypes.hpp Sonda.hpp; do
+    if [ -f "$TEMP_DIR/$expected" ]; then
+        ok "üretildi: $expected"
     else
-        basarisiz "üretilmedi: $beklenen"
+        fail "üretilmedi: $expected"
     fi
 done
 
 echo
-if [ "$hata_sayisi" -eq 0 ]; then
+if [ "$error_count" -eq 0 ]; then
     echo "SONUC: BASARILI - fastddsgen kullanıma hazır"
     exit 0
 fi
-echo "SONUC: BASARISIZ - $hata_sayisi kontrol başarısız"
+echo "SONUC: BASARISIZ - $error_count kontrol başarısız"
 exit 1

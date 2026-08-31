@@ -27,7 +27,7 @@ using namespace eprosima::fastdds::dds;
 namespace {
 
 // ---------------------------------------------------------------------------
-//  DdsKanal — bir topic'in topic + writer + reader + dinleyici dörtlüsü
+//  DdsKanal — bir topic'in topic + writer + reader + listener dörtlüsü
 //
 //  ŞABLON (TEMPLATE) NEDİR? Aynı kodu farklı tipler için tekrar tekrar
 //  yazmamayı sağlayan mekanizma. `template <typename MesajTipi>` yazınca
@@ -40,28 +40,28 @@ namespace {
 //  Sınıf ayrıca DataReaderListener'dan türüyor: veri geldiğinde Fast DDS
 //  on_data_available()'ı çağırır.
 // ---------------------------------------------------------------------------
-template <typename MesajTipi, typename MesajTipDestegi>
-class DdsKanal : public DataReaderListener
+template <typename MessageType, typename MessageTypeSupport>
+class DdsChannel : public DataReaderListener
 {
 public:
-    using GeriCagirma = std::function<void(const MesajTipi&)>;
+    using Callback = std::function<void(const MessageType&)>;
 
-    bool kur(DomainParticipant* participant,
-             const std::string& topic_adi,
-             bool guvenilir)
+    bool setup(DomainParticipant* participant,
+             const std::string& topic_name,
+             bool reliable)
     {
         participant_ = participant;
 
         // 1) Tipi participant'a tanıt. DDS, ağdan gelen baytları hangi
         //    sınıfa çevireceğini bu kayıttan bilir.
-        tip_destegi_ = TypeSupport(new MesajTipDestegi());
-        if (tip_destegi_.register_type(participant_) != RETCODE_OK)
+        type_support_ = TypeSupport(new MessageTypeSupport());
+        if (type_support_.register_type(participant_) != RETCODE_OK)
         {
             return false;
         }
 
         // 2) Topic
-        topic_ = participant_->create_topic(topic_adi, tip_destegi_.get_type_name(),
+        topic_ = participant_->create_topic(topic_name, type_support_.get_type_name(),
                                             TOPIC_QOS_DEFAULT);
         if (topic_ == nullptr)
         {
@@ -75,32 +75,32 @@ public:
             return false;
         }
 
-        DataWriterQos yazici_qos = DATAWRITER_QOS_DEFAULT;
-        qos_uygula(yazici_qos.reliability(), yazici_qos.durability(),
-                   yazici_qos.history(), guvenilir);
+        DataWriterQos writer_qos = DATAWRITER_QOS_DEFAULT;
+        apply_qos(writer_qos.reliability(), writer_qos.durability(),
+                   writer_qos.history(), reliable);
 
-        writer_ = publisher_->create_datawriter(topic_, yazici_qos);
+        writer_ = publisher_->create_datawriter(topic_, writer_qos);
         if (writer_ == nullptr)
         {
             return false;
         }
 
-        // 4) Subscriber + DataReader (dinleyici olarak `this`)
+        // 4) Subscriber + DataReader (listener olarak `this`)
         subscriber_ = participant_->create_subscriber(SUBSCRIBER_QOS_DEFAULT);
         if (subscriber_ == nullptr)
         {
             return false;
         }
 
-        DataReaderQos okuyucu_qos = DATAREADER_QOS_DEFAULT;
-        qos_uygula(okuyucu_qos.reliability(), okuyucu_qos.durability(),
-                   okuyucu_qos.history(), guvenilir);
+        DataReaderQos reader_qos = DATAREADER_QOS_DEFAULT;
+        apply_qos(reader_qos.reliability(), reader_qos.durability(),
+                   reader_qos.history(), reliable);
 
-        reader_ = subscriber_->create_datareader(topic_, okuyucu_qos, this);
+        reader_ = subscriber_->create_datareader(topic_, reader_qos, this);
         return reader_ != nullptr;
     }
 
-    void kapat()
+    void teardown()
     {
         if (participant_ == nullptr)
         {
@@ -139,7 +139,7 @@ public:
         participant_ = nullptr;
     }
 
-    bool yayinla(const MesajTipi& mesaj)
+    bool publish(const MessageType& message)
     {
         if (writer_ == nullptr)
         {
@@ -148,30 +148,30 @@ public:
 
         // write() const olmayan bir işaretçi ister; kopya üzerinde
         // çalışıyoruz ki çağıranın mesajı değişmesin.
-        MesajTipi kopya = mesaj;
-        return writer_->write(&kopya) == RETCODE_OK;
+        MessageType copy = message;
+        return writer_->write(&copy) == RETCODE_OK;
     }
 
-    void set_geri_cagirma(GeriCagirma geri_cagirma)
+    void set_callback(Callback callback)
     {
-        geri_cagirma_ = std::move(geri_cagirma);
+        callback_ = std::move(callback);
     }
 
     // Fast DDS, bu topic'e veri geldiğinde KENDİ thread'inden bunu çağırır.
-    void on_data_available(DataReader* okuyucu) override
+    void on_data_available(DataReader* reader) override
     {
-        SampleInfo bilgi;
-        MesajTipi mesaj;
+        SampleInfo info;
+        MessageType message;
 
         // Bir bildirimde birden fazla örnek birikmiş olabilir; hepsini
         // boşaltıyoruz.
-        while (okuyucu->take_next_sample(&mesaj, &bilgi) == RETCODE_OK)
+        while (reader->take_next_sample(&message, &info) == RETCODE_OK)
         {
             // valid_data == false, "veri değil, durum değişikliği bildirimi"
             // demektir (örn. yayıncı ayrıldı). İçeriği okunmamalıdır.
-            if (bilgi.valid_data && geri_cagirma_)
+            if (info.valid_data && callback_)
             {
-                geri_cagirma_(mesaj);
+                callback_(message);
             }
         }
     }
@@ -181,27 +181,27 @@ private:
     // ayrismasin: UYUSMAYAN QoS'ta DDS uclari HIC ESLESMEZ ve veri akmaz.
     // Bu, DDS'te en sik yapilan hatalardan biridir ve sessizce olur -
     // hata mesaji yoktur, sadece veri gelmez.
-    static void qos_uygula(
-            ReliabilityQosPolicy& guvenilirlik,
-            DurabilityQosPolicy& kalicilik,
-            HistoryQosPolicy& gecmis,
-            bool guvenilir)
+    static void apply_qos(
+            ReliabilityQosPolicy& reliability,
+            DurabilityQosPolicy& durability,
+            HistoryQosPolicy& history,
+            bool reliable)
     {
-        if (guvenilir)
+        if (reliable)
         {
             // --- Komut ve consensus kanallari (Bolum 3.4) ---
             // RELIABLE: DDS teslim edilmeyen ornekleri yeniden gonderir;
             // %100 ulastirma garantisi. Gorev emrinin kaybolmasi kabul
             // edilemez.
-            guvenilirlik.kind = RELIABLE_RELIABILITY_QOS;
+            reliability.kind = RELIABLE_RELIABILITY_QOS;
 
             // TRANSIENT_LOCAL: yayinci son orneklerini saklar ve SONRADAN
             // katilan bir aboneye de gonderir. Emir yayinlandiktan sonra aga
             // giren bir drone son gorev emrini yine de gorebilsin diye.
-            kalicilik.kind = TRANSIENT_LOCAL_DURABILITY_QOS;
+            durability.kind = TRANSIENT_LOCAL_DURABILITY_QOS;
 
-            gecmis.kind = KEEP_LAST_HISTORY_QOS;
-            gecmis.depth = 10;
+            history.kind = KEEP_LAST_HISTORY_QOS;
+            history.depth = 10;
         }
         else
         {
@@ -209,26 +209,26 @@ private:
             // BEST_EFFORT: kaybolan paket yeniden gonderilmez. Yuksek
             // frekansli (10-50 Hz) bir akista tazelik, eksiksizlikten daha
             // onemlidir; eski bir konumu tekrar gondermenin degeri yoktur.
-            guvenilirlik.kind = BEST_EFFORT_RELIABILITY_QOS;
+            reliability.kind = BEST_EFFORT_RELIABILITY_QOS;
 
             // VOLATILE: gecmis saklanmaz. Sonradan katilan bir dugumun eski
             // heartbeat'lere ihtiyaci yok, bir sonrakini zaten 100 ms icinde
             // alacak.
-            kalicilik.kind = VOLATILE_DURABILITY_QOS;
+            durability.kind = VOLATILE_DURABILITY_QOS;
 
-            gecmis.kind = KEEP_LAST_HISTORY_QOS;
-            gecmis.depth = 1;   // yalnizca en tazesi ilgilendiriyor
+            history.kind = KEEP_LAST_HISTORY_QOS;
+            history.depth = 1;   // yalnizca en tazesi ilgilendiriyor
         }
     }
 
     DomainParticipant* participant_ = nullptr;
-    TypeSupport tip_destegi_;
+    TypeSupport type_support_;
     Topic* topic_ = nullptr;
     Publisher* publisher_ = nullptr;
     DataWriter* writer_ = nullptr;
     Subscriber* subscriber_ = nullptr;
     DataReader* reader_ = nullptr;
-    GeriCagirma geri_cagirma_;
+    Callback callback_;
 };
 
 }  // namespace
@@ -237,34 +237,34 @@ private:
 //  FastDDSWrapper::Icerik — gerçek üyeler (PIMPL)
 // ---------------------------------------------------------------------------
 
-struct FastDDSWrapper::Icerik
+struct FastDDSWrapper::Impl
 {
     DomainParticipant* participant = nullptr;
 
-    DdsKanal<Heartbeat, HeartbeatPubSubType> heartbeat;
-    DdsKanal<Telemetry, TelemetryPubSubType> telemetry;
-    DdsKanal<TaskAllocation, TaskAllocationPubSubType> task_alloc;
-    DdsKanal<Consensus, ConsensusPubSubType> consensus;
+    DdsChannel<Heartbeat, HeartbeatPubSubType> heartbeat;
+    DdsChannel<Telemetry, TelemetryPubSubType> telemetry;
+    DdsChannel<TaskAllocation, TaskAllocationPubSubType> task_alloc;
+    DdsChannel<Consensus, ConsensusPubSubType> consensus;
 };
 
 FastDDSWrapper::FastDDSWrapper(uint32_t domain_id)
-    : icerik_(std::make_unique<Icerik>())
+    : impl_(std::make_unique<Impl>())
     , domain_id_(domain_id)
 {
 }
 
 FastDDSWrapper::~FastDDSWrapper()
 {
-    icerik_->heartbeat.kapat();
-    icerik_->telemetry.kapat();
-    icerik_->task_alloc.kapat();
-    icerik_->consensus.kapat();
+    impl_->heartbeat.teardown();
+    impl_->telemetry.teardown();
+    impl_->task_alloc.teardown();
+    impl_->consensus.teardown();
 
-    if (icerik_->participant != nullptr)
+    if (impl_->participant != nullptr)
     {
-        icerik_->participant->delete_contained_entities();
-        DomainParticipantFactory::get_instance()->delete_participant(icerik_->participant);
-        icerik_->participant = nullptr;
+        impl_->participant->delete_contained_entities();
+        DomainParticipantFactory::get_instance()->delete_participant(impl_->participant);
+        impl_->participant = nullptr;
     }
 }
 
@@ -276,10 +276,10 @@ bool FastDDSWrapper::init()
     // Aynı domain_id'yi paylaşan participant'lar birbirini SPDP ile
     // (UDP multicast) otomatik bulur — "drone'lar birbirinin IP'sini ağ
     // üzerinden keşfeder" gereksinimi burada karşılanıyor (Bölüm 3.2).
-    icerik_->participant = DomainParticipantFactory::get_instance()->create_participant(
+    impl_->participant = DomainParticipantFactory::get_instance()->create_participant(
             static_cast<DomainId_t>(domain_id_), participant_qos);
 
-    if (icerik_->participant == nullptr)
+    if (impl_->participant == nullptr)
     {
         std::cerr << "[FastDDSWrapper] DomainParticipant olusturulamadi "
                   << "(domain " << domain_id_ << ")" << std::endl;
@@ -289,12 +289,12 @@ bool FastDDSWrapper::init()
     // Bölüm 3.4'teki QoS haritası. İsimlendirilmiş sabitler, çağrı
     // yerinde `true`/`false` görmekten çok daha okunur.
     const bool BEST_EFFORT = false;
-    const bool GUVENILIR = true;
+    const bool RELIABLE = true;
 
-    if (!icerik_->heartbeat.kur(icerik_->participant, "swarm/heartbeat", BEST_EFFORT) ||
-        !icerik_->telemetry.kur(icerik_->participant, "swarm/telemetry", BEST_EFFORT) ||
-        !icerik_->task_alloc.kur(icerik_->participant, "swarm/task_alloc", GUVENILIR) ||
-        !icerik_->consensus.kur(icerik_->participant, "swarm/consensus", GUVENILIR))
+    if (!impl_->heartbeat.setup(impl_->participant, "swarm/heartbeat", BEST_EFFORT) ||
+        !impl_->telemetry.setup(impl_->participant, "swarm/telemetry", BEST_EFFORT) ||
+        !impl_->task_alloc.setup(impl_->participant, "swarm/task_alloc", RELIABLE) ||
+        !impl_->consensus.setup(impl_->participant, "swarm/consensus", RELIABLE))
     {
         std::cerr << "[FastDDSWrapper] Topic kurulumu basarisiz" << std::endl;
         return false;
@@ -303,45 +303,45 @@ bool FastDDSWrapper::init()
     return true;
 }
 
-bool FastDDSWrapper::publish(const Heartbeat& mesaj)
+bool FastDDSWrapper::publish(const Heartbeat& message)
 {
-    return icerik_->heartbeat.yayinla(mesaj);
+    return impl_->heartbeat.publish(message);
 }
 
-bool FastDDSWrapper::publish(const Telemetry& mesaj)
+bool FastDDSWrapper::publish(const Telemetry& message)
 {
-    return icerik_->telemetry.yayinla(mesaj);
+    return impl_->telemetry.publish(message);
 }
 
-bool FastDDSWrapper::publish(const TaskAllocation& mesaj)
+bool FastDDSWrapper::publish(const TaskAllocation& message)
 {
-    return icerik_->task_alloc.yayinla(mesaj);
+    return impl_->task_alloc.publish(message);
 }
 
-bool FastDDSWrapper::publish(const Consensus& mesaj)
+bool FastDDSWrapper::publish(const Consensus& message)
 {
-    return icerik_->consensus.yayinla(mesaj);
+    return impl_->consensus.publish(message);
 }
 
-void FastDDSWrapper::set_heartbeat_callback(std::function<void(const Heartbeat&)> geri_cagirma)
+void FastDDSWrapper::set_heartbeat_callback(std::function<void(const Heartbeat&)> callback)
 {
-    icerik_->heartbeat.set_geri_cagirma(std::move(geri_cagirma));
+    impl_->heartbeat.set_callback(std::move(callback));
 }
 
-void FastDDSWrapper::set_telemetry_callback(std::function<void(const Telemetry&)> geri_cagirma)
+void FastDDSWrapper::set_telemetry_callback(std::function<void(const Telemetry&)> callback)
 {
-    icerik_->telemetry.set_geri_cagirma(std::move(geri_cagirma));
+    impl_->telemetry.set_callback(std::move(callback));
 }
 
 void FastDDSWrapper::set_task_allocation_callback(
-        std::function<void(const TaskAllocation&)> geri_cagirma)
+        std::function<void(const TaskAllocation&)> callback)
 {
-    icerik_->task_alloc.set_geri_cagirma(std::move(geri_cagirma));
+    impl_->task_alloc.set_callback(std::move(callback));
 }
 
-void FastDDSWrapper::set_consensus_callback(std::function<void(const Consensus&)> geri_cagirma)
+void FastDDSWrapper::set_consensus_callback(std::function<void(const Consensus&)> callback)
 {
-    icerik_->consensus.set_geri_cagirma(std::move(geri_cagirma));
+    impl_->consensus.set_callback(std::move(callback));
 }
 
 }  // namespace swarm

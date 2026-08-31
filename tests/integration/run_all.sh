@@ -14,9 +14,9 @@
 
 set -uo pipefail
 
-BETIK_DIZINI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-TESTLER=(
+TESTS=(
     "test_01_discovery.sh"
     "test_02_consensus.sh"
     "test_03_consensus_iptal.sh"
@@ -25,21 +25,21 @@ TESTLER=(
     "test_06_rol_ayrimi.sh"
 )
 
-gecen=0
-kalan=0
-kalanlar=()
+elapsed=0
+remaining=0
+failed_list=()
 
-for test in "${TESTLER[@]}"; do
+for test in "${TESTS[@]}"; do
     echo
     echo "############################################################"
     echo "#  $test"
     echo "############################################################"
 
-    if bash "$BETIK_DIZINI/$test"; then
-        gecen=$((gecen + 1))
+    if bash "$SCRIPT_DIR/$test"; then
+        elapsed=$((elapsed + 1))
     else
-        kalan=$((kalan + 1))
-        kalanlar+=("$test")
+        remaining=$((remaining + 1))
+        failed_list+=("$test")
     fi
 done
 
@@ -47,13 +47,13 @@ echo
 echo "############################################################"
 echo "#  OZET"
 echo "############################################################"
-echo "  gecen test dosyasi: $gecen"
-echo "  kalan test dosyasi: $kalan"
-for t in "${kalanlar[@]:-}"; do
+echo "  gecen test dosyasi: $elapsed"
+echo "  kalan test dosyasi: $remaining"
+for t in "${failed_list[@]:-}"; do
     [ -n "$t" ] && echo "    - $t"
 done
 
-if [ "$kalan" -eq 0 ]; then
+if [ "$remaining" -eq 0 ]; then
     echo "SONUC: BASARILI"
     exit 0
 fi

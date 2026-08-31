@@ -4,54 +4,54 @@
 
 namespace swarm {
 
-double yatay_mesafe(double x1, double y1, double x2, double y2)
+double horizontal_distance(double x1, double y1, double x2, double y2)
 {
-    const double fark_x = x2 - x1;
-    const double fark_y = y2 - y1;
+    const double delta_x = x2 - x1;
+    const double delta_y = y2 - y1;
 
     // std::hypot(a, b) = sqrt(a*a + b*b), ama ara sonuçlarda taşma/alttaşma
     // yaşamadan hesaplar. Elle sqrt yazmaya tercih edilir.
-    return std::hypot(fark_x, fark_y);
+    return std::hypot(delta_x, delta_y);
 }
 
-bool hedefe_dogru_ilerlet(
-        DroneState& durum,
-        double hedef_x,
-        double hedef_y,
-        double hiz_metre_saniye,
-        double tolerans_metre,
-        double gecen_saniye)
+bool move_toward_target(
+        DroneState& state,
+        double target_x,
+        double target_y,
+        double speed_meters_per_second,
+        double tolerance_meters,
+        double elapsed_seconds)
 {
-    const double kalan = yatay_mesafe(durum.x, durum.y, hedef_x, hedef_y);
+    const double remaining = horizontal_distance(state.x, state.y, target_x, target_y);
 
-    if (kalan <= tolerans_metre)
+    if (remaining <= tolerance_meters)
     {
-        durum.hizi_sifirla();
+        state.reset_velocity();
         return true;
     }
 
-    const double adim = hiz_metre_saniye * gecen_saniye;
+    const double step = speed_meters_per_second * elapsed_seconds;
 
-    if (adim >= kalan)
+    if (step >= remaining)
     {
         // Bu adımda hedefe varıyoruz. Hedefi GEÇMEYİP tam üstüne oturuyoruz;
         // aksi halde araç hedefin etrafında ileri geri salınırdı.
-        durum.x = hedef_x;
-        durum.y = hedef_y;
-        durum.hizi_sifirla();
+        state.x = target_x;
+        state.y = target_y;
+        state.reset_velocity();
         return true;
     }
 
     // Hedefe doğru birim vektör: yön bilgisini uzunluğundan ayırıyoruz.
-    const double yon_x = (hedef_x - durum.x) / kalan;
-    const double yon_y = (hedef_y - durum.y) / kalan;
+    const double direction_x = (target_x - state.x) / remaining;
+    const double direction_y = (target_y - state.y) / remaining;
 
-    durum.x += yon_x * adim;
-    durum.y += yon_y * adim;
+    state.x += direction_x * step;
+    state.y += direction_y * step;
 
-    durum.vx = yon_x * hiz_metre_saniye;
-    durum.vy = yon_y * hiz_metre_saniye;
-    durum.vz = 0.0;
+    state.vx = direction_x * speed_meters_per_second;
+    state.vy = direction_y * speed_meters_per_second;
+    state.vz = 0.0;
 
     return false;
 }

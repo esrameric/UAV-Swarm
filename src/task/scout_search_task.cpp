@@ -5,55 +5,55 @@
 namespace swarm {
 
 ScoutSearchTask::ScoutSearchTask(
-        DroneState& durum,
-        double merkez_x,
-        double merkez_y,
-        std::chrono::milliseconds tarama_suresi)
-    : durum_(durum)
-    , merkez_x_(merkez_x)
-    , merkez_y_(merkez_y)
-    , tarama_suresi_(tarama_suresi)
+        DroneState& state,
+        double center_x,
+        double center_y,
+        std::chrono::milliseconds scan_duration)
+    : state_(state)
+    , center_x_(center_x)
+    , center_y_(center_y)
+    , scan_duration_(scan_duration)
 {
 }
 
 void ScoutSearchTask::on_enter(TimePoint now)
 {
-    son_calisma_ = now;
-    bolgeye_varildi_ = false;
-    tamamlandi_ = false;
+    last_update_ = now;
+    region_reached_ = false;
+    finished_ = false;
 }
 
 void ScoutSearchTask::run(TimePoint now)
 {
-    const double gecen_saniye =
-            std::chrono::duration<double>(now - son_calisma_).count();
-    son_calisma_ = now;
+    const double elapsed_seconds =
+            std::chrono::duration<double>(now - last_update_).count();
+    last_update_ = now;
 
     // --- 1. aşama: arama bölgesine git ---
-    if (!bolgeye_varildi_)
+    if (!region_reached_)
     {
-        bolgeye_varildi_ = hedefe_dogru_ilerlet(
-                durum_, merkez_x_, merkez_y_,
-                YATAY_HIZ_M_S, VARIS_TOLERANSI_M, gecen_saniye);
+        region_reached_ = move_toward_target(
+                state_, center_x_, center_y_,
+                HORIZONTAL_SPEED_M_S, ARRIVAL_TOLERANCE_M, elapsed_seconds);
 
-        if (bolgeye_varildi_)
+        if (region_reached_)
         {
             // Tarama sayacı, bölgeye VARDIĞIMIZ anda başlar; görevin
             // başında değil. Uzak bir bölgeye uçuş süresi taramadan sayılmaz.
-            tarama_baslangici_ = now;
+            scan_start_ = now;
         }
         return;
     }
 
     // --- 2. aşama: bölgede tara ---
-    durum_.hizi_sifirla();
+    state_.reset_velocity();
 
-    const auto tarama_gecen = std::chrono::duration_cast<std::chrono::milliseconds>(
-            now - tarama_baslangici_);
+    const auto scan_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - scan_start_);
 
-    if (tarama_gecen >= tarama_suresi_)
+    if (scan_elapsed >= scan_duration_)
     {
-        tamamlandi_ = true;
+        finished_ = true;
     }
 }
 
@@ -63,7 +63,7 @@ void ScoutSearchTask::on_exit()
 
 bool ScoutSearchTask::is_finished() const
 {
-    return tamamlandi_;
+    return finished_;
 }
 
 TaskType ScoutSearchTask::get_type() const

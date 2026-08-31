@@ -2,29 +2,29 @@
 
 namespace swarm {
 
-HoverTask::HoverTask(DroneState& durum, std::chrono::milliseconds sure)
-    : durum_(durum)
-    , sure_(sure)
+HoverTask::HoverTask(DroneState& state, std::chrono::milliseconds duration)
+    : state_(state)
+    , duration_(duration)
 {
 }
 
 void HoverTask::on_enter(TimePoint now)
 {
-    baslangic_ = now;
-    tamamlandi_ = false;
-    durum_.hizi_sifirla();
+    start_ = now;
+    finished_ = false;
+    state_.reset_velocity();
 }
 
 void HoverTask::run(TimePoint now)
 {
-    durum_.hizi_sifirla();
+    state_.reset_velocity();
 
-    const auto gecen = std::chrono::duration_cast<std::chrono::milliseconds>(
-            now - baslangic_);
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - start_);
 
-    if (gecen >= sure_)
+    if (elapsed >= duration_)
     {
-        tamamlandi_ = true;
+        finished_ = true;
     }
 }
 
@@ -34,7 +34,7 @@ void HoverTask::on_exit()
 
 bool HoverTask::is_finished() const
 {
-    return tamamlandi_;
+    return finished_;
 }
 
 TaskType HoverTask::get_type() const

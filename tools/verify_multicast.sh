@@ -20,13 +20,13 @@
 
 set -uo pipefail
 
-BETIK_DIZINI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SONDA_DIZINI="$BETIK_DIZINI/multicast_check"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROBE_DIR="$SCRIPT_DIR/multicast_check"
 
-AG_ADI="swarm_mcast_test"
-ALICI="swarm_mcast_alici"
-GONDERICI="swarm_mcast_gonderici"
-IMAJ="python:3.12-alpine"
+NETWORK_NAME="swarm_mcast_test"
+RECEIVER="swarm_mcast_alici"
+SENDER="swarm_mcast_gonderici"
+IMAGE="python:3.12-alpine"
 
 # Docker komutu. Varsayılan `docker`; kullanıcı `docker` grubunda değilse
 # ortam değişkeniyle değiştirilebilir (bkz. yukarıdaki kullanım notu).
@@ -34,56 +34,56 @@ DOCKER="${DOCKER:-docker}"
 
 # Bölüm 4'teki docker-compose ağıyla birebir aynı parametreler.
 SUBNET="172.20.0.0/16"
-ALICI_IP="172.20.0.21"
-GONDERICI_IP="172.20.0.22"
+RECEIVER_IP="172.20.0.21"
+SENDER_IP="172.20.0.22"
 
-temizle() {
-    $DOCKER rm -f "$ALICI" "$GONDERICI" >/dev/null 2>&1
-    $DOCKER network rm "$AG_ADI" >/dev/null 2>&1
+cleanup() {
+    $DOCKER rm -f "$RECEIVER" "$SENDER" >/dev/null 2>&1
+    $DOCKER network rm "$NETWORK_NAME" >/dev/null 2>&1
 }
 
 # `trap ... EXIT`: script hangi sebeple biterse bitsin (başarı, hata, Ctrl-C)
 # temizle() mutlaka çalışsın. Arkada başıboş container/ağ bırakmamak için.
-trap temizle EXIT
+trap cleanup EXIT
 
 echo "== Faz 0.5: Custom bridge ağında multicast doğrulaması =="
 
-temizle  # önceki yarım kalmış çalışmalardan kalıntı varsa sil
+cleanup  # önceki yarım kalmış çalışmalardan kalıntı varsa sil
 
-echo "-- ağ oluşturuluyor: $AG_ADI ($SUBNET)"
-if ! $DOCKER network create --driver bridge --subnet "$SUBNET" "$AG_ADI" >/dev/null; then
+echo "-- ağ oluşturuluyor: $NETWORK_NAME ($SUBNET)"
+if ! $DOCKER network create --driver bridge --subnet "$SUBNET" "$NETWORK_NAME" >/dev/null; then
     echo "SONUC: BASARISIZ - bridge ağı oluşturulamadı"
     exit 1
 fi
 
-echo "-- alıcı başlatılıyor ($ALICI_IP)"
-$DOCKER run -d --name "$ALICI" \
-    --network "$AG_ADI" --ip "$ALICI_IP" \
-    -v "$SONDA_DIZINI:/sonda:ro" \
-    "$IMAJ" python3 /sonda/receiver.py >/dev/null
+echo "-- alıcı başlatılıyor ($RECEIVER_IP)"
+$DOCKER run -d --name "$RECEIVER" \
+    --network "$NETWORK_NAME" --ip "$RECEIVER_IP" \
+    -v "$PROBE_DIR:/sonda:ro" \
+    "$IMAGE" python3 /sonda/receiver.py >/dev/null
 
 # Alıcının multicast grubuna katılması (IGMP join) için kısa bir pay bırakıyoruz;
 # yoksa gönderici, alıcı hazır olmadan yayına başlayabilir.
 sleep 3
 
-echo "-- gönderici başlatılıyor ($GONDERICI_IP)"
-$DOCKER run -d --name "$GONDERICI" \
-    --network "$AG_ADI" --ip "$GONDERICI_IP" \
-    -v "$SONDA_DIZINI:/sonda:ro" \
-    "$IMAJ" python3 /sonda/sender.py >/dev/null
+echo "-- gönderici başlatılıyor ($SENDER_IP)"
+$DOCKER run -d --name "$SENDER" \
+    --network "$NETWORK_NAME" --ip "$SENDER_IP" \
+    -v "$PROBE_DIR:/sonda:ro" \
+    "$IMAGE" python3 /sonda/sender.py >/dev/null
 
 echo "-- alıcının sonucu bekleniyor..."
-alici_cikis="$($DOCKER wait "$ALICI" 2>/dev/null)"
+receiver_exit="$($DOCKER wait "$RECEIVER" 2>/dev/null)"
 
 echo
 echo "----- alıcı logu -----"
-$DOCKER logs "$ALICI" 2>&1 | sed 's/^/  /'
+$DOCKER logs "$RECEIVER" 2>&1 | sed 's/^/  /'
 echo "----- gönderici logu -----"
-$DOCKER logs "$GONDERICI" 2>&1 | sed 's/^/  /'
+$DOCKER logs "$SENDER" 2>&1 | sed 's/^/  /'
 echo "----------------------"
 echo
 
-if [ "$alici_cikis" = "0" ]; then
+if [ "$receiver_exit" = "0" ]; then
     echo "SONUC: BASARILI - bridge ağında multicast çalışıyor"
     exit 0
 fi

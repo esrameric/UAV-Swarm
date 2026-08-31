@@ -14,10 +14,10 @@ TEST(SwarmManagerSingleton, HerCagriAyniOrnegiDondurur)
 {
     // İki ayrı çağrının AYNI nesneyi verdiğini adreslerini karşılaştırarak
     // doğruluyoruz. `&` bir nesnenin bellekteki adresini verir.
-    swarm::SwarmManager& birinci = swarm::SwarmManager::get_instance();
-    swarm::SwarmManager& ikinci = swarm::SwarmManager::get_instance();
+    swarm::SwarmManager& first = swarm::SwarmManager::get_instance();
+    swarm::SwarmManager& second_result = swarm::SwarmManager::get_instance();
 
-    EXPECT_EQ(&birinci, &ikinci);
+    EXPECT_EQ(&first, &second_result);
 }
 
 TEST(SwarmManagerSingleton, KopyalanamazVeTasinamaz)
@@ -52,31 +52,31 @@ TEST(SwarmManagerSingleton, EszamanliErisimdeDeTekOrnek)
     // hepsi aynı adresi görür.
     //
     // std::thread: işletim sisteminden yeni bir çalışma iş parçacığı ister.
-    constexpr int THREAD_SAYISI = 8;
-    std::vector<swarm::SwarmManager*> adresler(THREAD_SAYISI, nullptr);
-    std::vector<std::thread> threadler;
+    constexpr int THREAD_COUNT = 8;
+    std::vector<swarm::SwarmManager*> addresses(THREAD_COUNT, nullptr);
+    std::vector<std::thread> threads;
 
-    for (int sira = 0; sira < THREAD_SAYISI; ++sira)
+    for (int index = 0; index < THREAD_COUNT; ++index)
     {
         // LAMBDA: yerinde tanımlanan isimsiz fonksiyon. Köşeli parantez
         // içindeki `&adresler, sira` "yakalama listesi"dir: lambda'nın
         // dışarıdaki hangi değişkenleri kullanacağını söyler. `&` referansla
         // (asıl nesne), isim tek başına ise kopyayla yakalar.
-        threadler.emplace_back([&adresler, sira]() {
-            adresler[static_cast<std::size_t>(sira)] = &swarm::SwarmManager::get_instance();
+        threads.emplace_back([&addresses, index]() {
+            addresses[static_cast<std::size_t>(index)] = &swarm::SwarmManager::get_instance();
         });
     }
 
     // join(): thread'in bitmesini bekler. Beklemezsek main thread önce
     // bitip programı sonlandırabilir.
-    for (std::thread& thread : threadler)
+    for (std::thread& thread : threads)
     {
         thread.join();
     }
 
-    for (const swarm::SwarmManager* adres : adresler)
+    for (const swarm::SwarmManager* address : addresses)
     {
-        EXPECT_EQ(adres, &swarm::SwarmManager::get_instance());
+        EXPECT_EQ(address, &swarm::SwarmManager::get_instance());
     }
 }
 
@@ -84,7 +84,7 @@ TEST(SwarmManagerSingleton, EszamanliErisimdeDeTekOrnek)
 //  Faz 3.2 — mutex korumalı üyeler
 //
 //  DİKKAT: SwarmManager bir Singleton olduğu için testler AYNI nesneyi
-//  paylaşır. Bu yüzden her test, işe başlamadan önce kuyrukları boşaltır;
+//  paylaşır. Bu yüzden her test, işe başlamadan önce queue'ları boşaltır;
 //  böylece testlerin çalışma sırası sonucu etkilemez.
 // ============================================================================
 
@@ -100,132 +100,132 @@ namespace {
 using namespace std::chrono_literals;
 
 // Testlerin sabit zaman referansı (bkz. test_tasks.cpp'deki aynı kalıp).
-const swarm::TimePoint BASLANGIC{};
+const swarm::TimePoint START{};
 
-void kuyruklari_bosalt(swarm::SwarmManager& yonetici)
+void clear_queues(swarm::SwarmManager& manager)
 {
-    swarm::Command atilacak;
-    while (yonetici.pop_command(atilacak))
+    swarm::Command discarded;
+    while (manager.pop_command(discarded))
     {
     }
-    yonetici.clear_task_queue();
+    manager.clear_task_queue();
 }
 
-swarm::TaskAllocation gorev_emri_olustur(uint32_t task_id, swarm::DroneRole rol)
+swarm::TaskAllocation create_task_order(uint32_t task_id, swarm::DroneRole role)
 {
-    swarm::TaskAllocation emir;
-    emir.task_id(task_id);
-    emir.target_role(rol);
-    emir.target_x(10.0);
-    emir.target_y(20.0);
-    return emir;
+    swarm::TaskAllocation order;
+    order.task_id(task_id);
+    order.target_role(role);
+    order.target_x(10.0);
+    order.target_y(20.0);
+    return order;
 }
 
 }  // namespace
 
 TEST(SwarmManagerKuyruk, BaslangictaBosaltilabiliyor)
 {
-    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
-    kuyruklari_bosalt(yonetici);
+    swarm::SwarmManager& manager = swarm::SwarmManager::get_instance();
+    clear_queues(manager);
 
-    EXPECT_EQ(yonetici.command_queue_size(), 0u);
-    EXPECT_EQ(yonetici.task_queue_size(), 0u);
-    EXPECT_EQ(yonetici.current_task(), nullptr);
+    EXPECT_EQ(manager.command_queue_size(), 0u);
+    EXPECT_EQ(manager.task_queue_size(), 0u);
+    EXPECT_EQ(manager.current_task(), nullptr);
 }
 
 TEST(SwarmManagerKuyruk, KomutlarFifoSirasiylaIslenir)
 {
-    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
-    kuyruklari_bosalt(yonetici);
+    swarm::SwarmManager& manager = swarm::SwarmManager::get_instance();
+    clear_queues(manager);
 
-    yonetici.add_command(swarm::Command::gorev_emri(
-            gorev_emri_olustur(1, swarm::DroneRole::SCOUT)));
-    yonetici.add_command(swarm::Command::gorev_emri(
-            gorev_emri_olustur(2, swarm::DroneRole::STRIKER)));
+    manager.add_command(swarm::Command::task_order(
+            create_task_order(1, swarm::DroneRole::SCOUT)));
+    manager.add_command(swarm::Command::task_order(
+            create_task_order(2, swarm::DroneRole::STRIKER)));
 
-    EXPECT_EQ(yonetici.command_queue_size(), 2u);
+    EXPECT_EQ(manager.command_queue_size(), 2u);
 
-    swarm::Command birinci;
-    ASSERT_TRUE(yonetici.pop_command(birinci));
-    EXPECT_EQ(birinci.type, swarm::CommandType::TASK_ALLOCATION);
-    EXPECT_EQ(birinci.task_allocation.task_id(), 1u);
+    swarm::Command first;
+    ASSERT_TRUE(manager.pop_command(first));
+    EXPECT_EQ(first.type, swarm::CommandType::TASK_ALLOCATION);
+    EXPECT_EQ(first.task_allocation.task_id(), 1u);
 
-    swarm::Command ikinci;
-    ASSERT_TRUE(yonetici.pop_command(ikinci));
-    EXPECT_EQ(ikinci.task_allocation.task_id(), 2u);
+    swarm::Command second_result;
+    ASSERT_TRUE(manager.pop_command(second_result));
+    EXPECT_EQ(second_result.task_allocation.task_id(), 2u);
 
-    EXPECT_EQ(yonetici.command_queue_size(), 0u);
+    EXPECT_EQ(manager.command_queue_size(), 0u);
 }
 
 TEST(SwarmManagerKuyruk, BosKuyruktanPopFalseDoner)
 {
-    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
-    kuyruklari_bosalt(yonetici);
+    swarm::SwarmManager& manager = swarm::SwarmManager::get_instance();
+    clear_queues(manager);
 
-    swarm::Command cikti;
-    EXPECT_FALSE(yonetici.pop_command(cikti));
+    swarm::Command output;
+    EXPECT_FALSE(manager.pop_command(output));
 }
 
 TEST(SwarmManagerKuyruk, ConsensusOyuKomutOlarakTasinabilir)
 {
-    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
-    kuyruklari_bosalt(yonetici);
+    swarm::SwarmManager& manager = swarm::SwarmManager::get_instance();
+    clear_queues(manager);
 
-    swarm::Consensus oy;
-    oy.transaction_id(42);
-    oy.sender_id(3);
-    oy.vote(swarm::Vote::ACK);
+    swarm::Consensus vote;
+    vote.transaction_id(42);
+    vote.sender_id(3);
+    vote.vote(swarm::Vote::ACK);
 
-    yonetici.add_command(swarm::Command::consensus_oyu(oy));
+    manager.add_command(swarm::Command::consensus_vote(vote));
 
-    swarm::Command alinan;
-    ASSERT_TRUE(yonetici.pop_command(alinan));
-    EXPECT_EQ(alinan.type, swarm::CommandType::CONSENSUS);
-    EXPECT_EQ(alinan.consensus.transaction_id(), 42u);
-    EXPECT_EQ(alinan.consensus.vote(), swarm::Vote::ACK);
+    swarm::Command received;
+    ASSERT_TRUE(manager.pop_command(received));
+    EXPECT_EQ(received.type, swarm::CommandType::CONSENSUS);
+    EXPECT_EQ(received.consensus.transaction_id(), 42u);
+    EXPECT_EQ(received.consensus.vote(), swarm::Vote::ACK);
 }
 
 TEST(SwarmManagerKuyruk, GorevKuyruguSirayiKorur)
 {
-    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
-    kuyruklari_bosalt(yonetici);
+    swarm::SwarmManager& manager = swarm::SwarmManager::get_instance();
+    clear_queues(manager);
 
-    swarm::DroneState durum;
-    yonetici.push_task(std::make_unique<swarm::InitTask>());
-    yonetici.push_task(std::make_unique<swarm::IdleTask>(durum));
+    swarm::DroneState state;
+    manager.push_task(std::make_unique<swarm::InitTask>());
+    manager.push_task(std::make_unique<swarm::IdleTask>(state));
 
-    EXPECT_EQ(yonetici.task_queue_size(), 2u);
+    EXPECT_EQ(manager.task_queue_size(), 2u);
 
-    // Aktif görev kuyruğun BAŞIDIR.
-    ASSERT_NE(yonetici.current_task(), nullptr);
-    EXPECT_EQ(yonetici.current_task()->get_type(), swarm::TaskType::INIT);
+    // Aktif görev queue'nun BAŞIDIR.
+    ASSERT_NE(manager.current_task(), nullptr);
+    EXPECT_EQ(manager.current_task()->get_type(), swarm::TaskType::INIT);
 }
 
 TEST(SwarmManagerKuyruk, ClearTaskQueueTumGorevleriIptalEder)
 {
     // Consensus ABORTED olduğunda sürünün IdleTask'a dönebilmesi için
-    // kuyruğun boşaltılabilmesi gerekir (Bölüm 2/3.6).
-    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
-    kuyruklari_bosalt(yonetici);
+    // queue'nun boşaltılabilmesi gerekir (Bölüm 2/3.6).
+    swarm::SwarmManager& manager = swarm::SwarmManager::get_instance();
+    clear_queues(manager);
 
-    swarm::DroneState durum;
-    yonetici.push_task(std::make_unique<swarm::InitTask>());
-    yonetici.push_task(std::make_unique<swarm::IdleTask>(durum));
-    ASSERT_EQ(yonetici.task_queue_size(), 2u);
+    swarm::DroneState state;
+    manager.push_task(std::make_unique<swarm::InitTask>());
+    manager.push_task(std::make_unique<swarm::IdleTask>(state));
+    ASSERT_EQ(manager.task_queue_size(), 2u);
 
-    yonetici.clear_task_queue();
+    manager.clear_task_queue();
 
-    EXPECT_EQ(yonetici.task_queue_size(), 0u);
-    EXPECT_EQ(yonetici.current_task(), nullptr);
+    EXPECT_EQ(manager.task_queue_size(), 0u);
+    EXPECT_EQ(manager.current_task(), nullptr);
 }
 
 TEST(SwarmManagerKuyruk, PeerTablosuBaslangictaBos)
 {
-    const swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
+    const swarm::SwarmManager& manager = swarm::SwarmManager::get_instance();
 
     // Bu test henüz peer eklenmemişken çalışır; peer ekleme Faz 3.5'te
     // update_peer_list() ile gelecek.
-    EXPECT_EQ(yonetici.online_peer_count(), 0u);
+    EXPECT_EQ(manager.online_peer_count(), 0u);
 }
 
 TEST(SwarmManagerKuyruk, EszamanliKomutEklemeVeriYarisiYaratmaz)
@@ -233,36 +233,36 @@ TEST(SwarmManagerKuyruk, EszamanliKomutEklemeVeriYarisiYaratmaz)
     // MUTEX'İN ASIL SINANDIĞI TEST: 4 thread aynı anda komut ekliyor.
     // Kilit olmasaydı deque'nun iç yapısı bozulur, sayı tutmaz veya
     // program çökerdi.
-    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
-    kuyruklari_bosalt(yonetici);
+    swarm::SwarmManager& manager = swarm::SwarmManager::get_instance();
+    clear_queues(manager);
 
-    constexpr int THREAD_SAYISI = 4;
-    constexpr int KOMUT_SAYISI = 250;
+    constexpr int THREAD_COUNT = 4;
+    constexpr int COMMAND_COUNT = 250;
 
-    std::vector<std::thread> threadler;
-    for (int thread_no = 0; thread_no < THREAD_SAYISI; ++thread_no)
+    std::vector<std::thread> threads;
+    for (int thread_index = 0; thread_index < THREAD_COUNT; ++thread_index)
     {
-        threadler.emplace_back([&yonetici, thread_no]() {
-            for (int sira = 0; sira < KOMUT_SAYISI; ++sira)
+        threads.emplace_back([&manager, thread_index]() {
+            for (int index = 0; index < COMMAND_COUNT; ++index)
             {
-                yonetici.add_command(swarm::Command::gorev_emri(
-                        gorev_emri_olustur(
-                                static_cast<uint32_t>(thread_no * 1000 + sira),
+                manager.add_command(swarm::Command::task_order(
+                        create_task_order(
+                                static_cast<uint32_t>(thread_index * 1000 + index),
                                 swarm::DroneRole::SCOUT)));
             }
         });
     }
 
-    for (std::thread& thread : threadler)
+    for (std::thread& thread : threads)
     {
         thread.join();
     }
 
     // Hiçbir komut kaybolmamalı, fazladan da olmamalı.
-    EXPECT_EQ(yonetici.command_queue_size(),
-              static_cast<std::size_t>(THREAD_SAYISI * KOMUT_SAYISI));
+    EXPECT_EQ(manager.command_queue_size(),
+              static_cast<std::size_t>(THREAD_COUNT * COMMAND_COUNT));
 
-    kuyruklari_bosalt(yonetici);
+    clear_queues(manager);
 }
 
 // ============================================================================
@@ -271,7 +271,7 @@ TEST(SwarmManagerKuyruk, EszamanliKomutEklemeVeriYarisiYaratmaz)
 
 TEST(SwarmManagerYasamDongusu, InitKimligiAyarlar)
 {
-    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
+    swarm::SwarmManager& manager = swarm::SwarmManager::get_instance();
 
     swarm::SwarmConfig config;
     config.drone_id = 2;
@@ -279,102 +279,102 @@ TEST(SwarmManagerYasamDongusu, InitKimligiAyarlar)
     config.role = swarm::DroneRole::STRIKER;
     config.domain_id = 42;
 
-    yonetici.init(config);
+    manager.init(config);
 
-    EXPECT_EQ(yonetici.config().drone_id, 2u);
-    EXPECT_EQ(yonetici.config().node_type, swarm::NodeType::DRONE);
-    EXPECT_EQ(yonetici.config().role, swarm::DroneRole::STRIKER);
-    EXPECT_EQ(yonetici.config().domain_id, 42u);
+    EXPECT_EQ(manager.config().drone_id, 2u);
+    EXPECT_EQ(manager.config().node_type, swarm::NodeType::DRONE);
+    EXPECT_EQ(manager.config().role, swarm::DroneRole::STRIKER);
+    EXPECT_EQ(manager.config().domain_id, 42u);
 }
 
 TEST(SwarmManagerYasamDongusu, InitKuyruklariVeDurumuSifirlar)
 {
-    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
+    swarm::SwarmManager& manager = swarm::SwarmManager::get_instance();
 
     // Önce kirletiyoruz...
-    yonetici.add_command(swarm::Command::gorev_emri(
-            gorev_emri_olustur(1, swarm::DroneRole::SCOUT)));
-    yonetici.push_task(std::make_unique<swarm::InitTask>());
-    yonetici.drone_state().x = 123.0;
-    ASSERT_GT(yonetici.command_queue_size(), 0u);
+    manager.add_command(swarm::Command::task_order(
+            create_task_order(1, swarm::DroneRole::SCOUT)));
+    manager.push_task(std::make_unique<swarm::InitTask>());
+    manager.drone_state().x = 123.0;
+    ASSERT_GT(manager.command_queue_size(), 0u);
 
     // ...init temizlemeli.
-    yonetici.init(swarm::SwarmConfig{});
+    manager.init(swarm::SwarmConfig{});
 
-    EXPECT_EQ(yonetici.command_queue_size(), 0u);
-    EXPECT_EQ(yonetici.task_queue_size(), 0u);
-    EXPECT_EQ(yonetici.peer_count(), 0u);
-    EXPECT_DOUBLE_EQ(yonetici.drone_state().x, 0.0);
+    EXPECT_EQ(manager.command_queue_size(), 0u);
+    EXPECT_EQ(manager.task_queue_size(), 0u);
+    EXPECT_EQ(manager.peer_count(), 0u);
+    EXPECT_DOUBLE_EQ(manager.drone_state().x, 0.0);
 }
 
 TEST(SwarmManagerYasamDongusu, GcsKimligiKurulabilir)
 {
-    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
+    swarm::SwarmManager& manager = swarm::SwarmManager::get_instance();
 
     swarm::SwarmConfig config;
     config.drone_id = 0;
     config.node_type = swarm::NodeType::GCS;
 
-    yonetici.init(config);
+    manager.init(config);
 
-    EXPECT_EQ(yonetici.config().node_type, swarm::NodeType::GCS);
-    EXPECT_EQ(yonetici.config().drone_id, 0u);
+    EXPECT_EQ(manager.config().node_type, swarm::NodeType::GCS);
+    EXPECT_EQ(manager.config().drone_id, 0u);
 }
 
 TEST(SwarmManagerYasamDongusu, RunThreadleriBaslatirStopBekler)
 {
-    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
-    yonetici.init(swarm::SwarmConfig{});
+    swarm::SwarmManager& manager = swarm::SwarmManager::get_instance();
+    manager.init(swarm::SwarmConfig{});
 
-    EXPECT_FALSE(yonetici.is_running());
+    EXPECT_FALSE(manager.is_running());
 
-    yonetici.run();
-    EXPECT_TRUE(yonetici.is_running());
+    manager.run();
+    EXPECT_TRUE(manager.is_running());
 
     // stop() thread'lerin bitmesini BEKLER (join). Dönüş sonrası hiçbir
     // thread çalışmıyor olmalı.
-    yonetici.stop();
-    EXPECT_FALSE(yonetici.is_running());
+    manager.stop();
+    EXPECT_FALSE(manager.is_running());
 }
 
 TEST(SwarmManagerYasamDongusu, IkinciRunCagrisiEtkisiz)
 {
-    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
-    yonetici.init(swarm::SwarmConfig{});
+    swarm::SwarmManager& manager = swarm::SwarmManager::get_instance();
+    manager.init(swarm::SwarmConfig{});
 
-    yonetici.run();
-    yonetici.run();  // ikinci çağrı yeni thread AÇMAMALI
-    EXPECT_TRUE(yonetici.is_running());
+    manager.run();
+    manager.run();  // ikinci çağrı yeni thread AÇMAMALI
+    EXPECT_TRUE(manager.is_running());
 
-    yonetici.stop();
-    EXPECT_FALSE(yonetici.is_running());
+    manager.stop();
+    EXPECT_FALSE(manager.is_running());
 }
 
 TEST(SwarmManagerYasamDongusu, CalismayanDugumdeStopGuvenli)
 {
-    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
-    yonetici.init(swarm::SwarmConfig{});
+    swarm::SwarmManager& manager = swarm::SwarmManager::get_instance();
+    manager.init(swarm::SwarmConfig{});
 
     // Hiç run() çağrılmadan stop() çağırmak çökmemelidir.
-    yonetici.stop();
-    yonetici.stop();
+    manager.stop();
+    manager.stop();
 
-    EXPECT_FALSE(yonetici.is_running());
+    EXPECT_FALSE(manager.is_running());
 }
 
 TEST(SwarmManagerYasamDongusu, BasDurBasDurDongusuCalisir)
 {
     // Thread'ler düzgün join edildiği için düğüm tekrar tekrar
     // başlatılıp durdurulabilmeli.
-    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
-    yonetici.init(swarm::SwarmConfig{});
+    swarm::SwarmManager& manager = swarm::SwarmManager::get_instance();
+    manager.init(swarm::SwarmConfig{});
 
-    for (int tur = 0; tur < 3; ++tur)
+    for (int round = 0; round < 3; ++round)
     {
-        yonetici.run();
-        ASSERT_TRUE(yonetici.is_running());
-        yonetici.stop();
-        ASSERT_FALSE(yonetici.is_running());
+        manager.run();
+        ASSERT_TRUE(manager.is_running());
+        manager.stop();
+        ASSERT_FALSE(manager.is_running());
     }
 }
 
@@ -390,230 +390,230 @@ TEST(SwarmManagerYasamDongusu, BasDurBasDurDongusuCalisir)
 
 namespace {
 
-swarm::SwarmManager& drone_olarak_hazirla(uint8_t drone_id, swarm::DroneRole rol)
+swarm::SwarmManager& prepare_as_drone(uint8_t drone_id, swarm::DroneRole role)
 {
-    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
+    swarm::SwarmManager& manager = swarm::SwarmManager::get_instance();
 
     swarm::SwarmConfig config;
     config.drone_id = drone_id;
     config.node_type = swarm::NodeType::DRONE;
-    config.role = rol;
+    config.role = role;
 
-    yonetici.init(config);
-    return yonetici;
+    manager.init(config);
+    return manager;
 }
 
 }  // namespace
 
 TEST(TaskEngine, BosKuyrukIdleTaskaDuser)
 {
-    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
-    ASSERT_EQ(yonetici.task_queue_size(), 0u);
+    swarm::SwarmManager& manager = prepare_as_drone(1, swarm::DroneRole::SCOUT);
+    ASSERT_EQ(manager.task_queue_size(), 0u);
 
-    yonetici.task_engine_adimi(BASLANGIC);
+    manager.task_engine_step(START);
 
-    ASSERT_NE(yonetici.current_task(), nullptr);
-    EXPECT_EQ(yonetici.current_task()->get_type(), swarm::TaskType::IDLE);
+    ASSERT_NE(manager.current_task(), nullptr);
+    EXPECT_EQ(manager.current_task()->get_type(), swarm::TaskType::IDLE);
 }
 
 TEST(TaskEngine, BitenGorevKuyruktanCikarilirVeSiradakiBaslar)
 {
-    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+    swarm::SwarmManager& manager = prepare_as_drone(1, swarm::DroneRole::SCOUT);
 
     // InitTask ilk run()'da biter; ardindan HoverTask aktif olmali.
-    yonetici.push_task(std::make_unique<swarm::InitTask>());
-    yonetici.push_task(std::make_unique<swarm::HoverTask>(yonetici.drone_state(), 1000ms));
-    ASSERT_EQ(yonetici.task_queue_size(), 2u);
+    manager.push_task(std::make_unique<swarm::InitTask>());
+    manager.push_task(std::make_unique<swarm::HoverTask>(manager.drone_state(), 1000ms));
+    ASSERT_EQ(manager.task_queue_size(), 2u);
 
-    yonetici.task_engine_adimi(BASLANGIC);
+    manager.task_engine_step(START);
 
-    EXPECT_EQ(yonetici.task_queue_size(), 1u);
-    ASSERT_NE(yonetici.current_task(), nullptr);
-    EXPECT_EQ(yonetici.current_task()->get_type(), swarm::TaskType::HOVER);
+    EXPECT_EQ(manager.task_queue_size(), 1u);
+    ASSERT_NE(manager.current_task(), nullptr);
+    EXPECT_EQ(manager.current_task()->get_type(), swarm::TaskType::HOVER);
 }
 
 TEST(TaskEngine, KuyrukTukeninceIdleTaskaDonulur)
 {
-    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
-    yonetici.push_task(std::make_unique<swarm::InitTask>());
+    swarm::SwarmManager& manager = prepare_as_drone(1, swarm::DroneRole::SCOUT);
+    manager.push_task(std::make_unique<swarm::InitTask>());
 
-    yonetici.task_engine_adimi(BASLANGIC);          // InitTask biter
-    yonetici.task_engine_adimi(BASLANGIC + 20ms);   // kuyruk bos -> IdleTask
+    manager.task_engine_step(START);          // InitTask biter
+    manager.task_engine_step(START + 20ms);   // queue bos -> IdleTask
 
-    ASSERT_NE(yonetici.current_task(), nullptr);
-    EXPECT_EQ(yonetici.current_task()->get_type(), swarm::TaskType::IDLE);
+    ASSERT_NE(manager.current_task(), nullptr);
+    EXPECT_EQ(manager.current_task()->get_type(), swarm::TaskType::IDLE);
 }
 
 // --- Gorev dagitimi (TaskAllocationEngine) ---------------------------------
 
 TEST(TaskEngine, ScoutRoluAramaGoreviAlir)
 {
-    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+    swarm::SwarmManager& manager = prepare_as_drone(1, swarm::DroneRole::SCOUT);
 
-    yonetici.add_command(swarm::Command::gorev_emri(
-            gorev_emri_olustur(10, swarm::DroneRole::SCOUT)));
+    manager.add_command(swarm::Command::task_order(
+            create_task_order(10, swarm::DroneRole::SCOUT)));
 
-    yonetici.task_engine_adimi(BASLANGIC);
+    manager.task_engine_step(START);
 
-    ASSERT_NE(yonetici.current_task(), nullptr);
-    EXPECT_EQ(yonetici.current_task()->get_type(), swarm::TaskType::SCOUT_SEARCH);
+    ASSERT_NE(manager.current_task(), nullptr);
+    EXPECT_EQ(manager.current_task()->get_type(), swarm::TaskType::SCOUT_SEARCH);
 }
 
 TEST(TaskEngine, StrikerRoluHedefeGidisGoreviAlir)
 {
-    swarm::SwarmManager& yonetici = drone_olarak_hazirla(2, swarm::DroneRole::STRIKER);
+    swarm::SwarmManager& manager = prepare_as_drone(2, swarm::DroneRole::STRIKER);
 
-    yonetici.add_command(swarm::Command::gorev_emri(
-            gorev_emri_olustur(11, swarm::DroneRole::STRIKER)));
+    manager.add_command(swarm::Command::task_order(
+            create_task_order(11, swarm::DroneRole::STRIKER)));
 
-    yonetici.task_engine_adimi(BASLANGIC);
+    manager.task_engine_step(START);
 
-    ASSERT_NE(yonetici.current_task(), nullptr);
-    EXPECT_EQ(yonetici.current_task()->get_type(), swarm::TaskType::GO_TO_TARGET);
+    ASSERT_NE(manager.current_task(), nullptr);
+    EXPECT_EQ(manager.current_task()->get_type(), swarm::TaskType::GO_TO_TARGET);
 }
 
 TEST(TaskEngine, BaskaRoleGonderilenEmirYokSayilir)
 {
     // Heterojen sure: emir bir DRONE'a degil bir ROLE gonderilir.
-    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+    swarm::SwarmManager& manager = prepare_as_drone(1, swarm::DroneRole::SCOUT);
 
-    yonetici.add_command(swarm::Command::gorev_emri(
-            gorev_emri_olustur(12, swarm::DroneRole::STRIKER)));
+    manager.add_command(swarm::Command::task_order(
+            create_task_order(12, swarm::DroneRole::STRIKER)));
 
-    yonetici.task_engine_adimi(BASLANGIC);
+    manager.task_engine_step(START);
 
     // Emir yok sayildi -> IdleTask'ta kaldik.
-    ASSERT_NE(yonetici.current_task(), nullptr);
-    EXPECT_EQ(yonetici.current_task()->get_type(), swarm::TaskType::IDLE);
+    ASSERT_NE(manager.current_task(), nullptr);
+    EXPECT_EQ(manager.current_task()->get_type(), swarm::TaskType::IDLE);
 }
 
 TEST(TaskEngine, GcsUcusGoreviAlmaz)
 {
-    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
+    swarm::SwarmManager& manager = swarm::SwarmManager::get_instance();
     swarm::SwarmConfig config;
     config.drone_id = 0;
     config.node_type = swarm::NodeType::GCS;
-    yonetici.init(config);
+    manager.init(config);
 
-    yonetici.add_command(swarm::Command::gorev_emri(
-            gorev_emri_olustur(13, swarm::DroneRole::SCOUT)));
+    manager.add_command(swarm::Command::task_order(
+            create_task_order(13, swarm::DroneRole::SCOUT)));
 
-    yonetici.task_engine_adimi(BASLANGIC);
+    manager.task_engine_step(START);
 
-    ASSERT_NE(yonetici.current_task(), nullptr);
-    EXPECT_EQ(yonetici.current_task()->get_type(), swarm::TaskType::IDLE);
+    ASSERT_NE(manager.current_task(), nullptr);
+    EXPECT_EQ(manager.current_task()->get_type(), swarm::TaskType::IDLE);
 }
 
 TEST(TaskEngine, YeniGorevEmriIdleTaskiYerindenEder)
 {
-    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+    swarm::SwarmManager& manager = prepare_as_drone(1, swarm::DroneRole::SCOUT);
 
-    yonetici.task_engine_adimi(BASLANGIC);
-    ASSERT_EQ(yonetici.current_task()->get_type(), swarm::TaskType::IDLE);
+    manager.task_engine_step(START);
+    ASSERT_EQ(manager.current_task()->get_type(), swarm::TaskType::IDLE);
 
-    yonetici.add_command(swarm::Command::gorev_emri(
-            gorev_emri_olustur(14, swarm::DroneRole::SCOUT)));
-    yonetici.task_engine_adimi(BASLANGIC + 20ms);
+    manager.add_command(swarm::Command::task_order(
+            create_task_order(14, swarm::DroneRole::SCOUT)));
+    manager.task_engine_step(START + 20ms);
 
     // Bosta beklemeye devam etmenin anlami yok: yeni goreve geciliyor.
-    EXPECT_EQ(yonetici.current_task()->get_type(), swarm::TaskType::SCOUT_SEARCH);
-    EXPECT_EQ(yonetici.task_queue_size(), 1u);
+    EXPECT_EQ(manager.current_task()->get_type(), swarm::TaskType::SCOUT_SEARCH);
+    EXPECT_EQ(manager.task_queue_size(), 1u);
 }
 
 // --- Consensus oylarinin yonlendirilmesi -----------------------------------
 
 TEST(TaskEngine, ConsensusOyuAktifOylamayaIletilir)
 {
-    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+    swarm::SwarmManager& manager = prepare_as_drone(1, swarm::DroneRole::SCOUT);
 
-    auto oylama = std::make_unique<swarm::ConsensusTask>(
+    auto voting = std::make_unique<swarm::ConsensusTask>(
             77, std::vector<uint8_t>{2, 3}, 5000ms);
-    swarm::ConsensusTask* oylama_ptr = oylama.get();
-    yonetici.push_task(std::move(oylama));
+    swarm::ConsensusTask* voting_ptr = voting.get();
+    manager.push_task(std::move(voting));
 
-    swarm::Consensus oy;
-    oy.transaction_id(77);
-    oy.sender_id(2);
-    oy.vote(swarm::Vote::ACK);
-    yonetici.add_command(swarm::Command::consensus_oyu(oy));
+    swarm::Consensus vote;
+    vote.transaction_id(77);
+    vote.sender_id(2);
+    vote.vote(swarm::Vote::ACK);
+    manager.add_command(swarm::Command::consensus_vote(vote));
 
-    yonetici.task_engine_adimi(BASLANGIC);
+    manager.task_engine_step(START);
 
-    EXPECT_EQ(oylama_ptr->oy_durumu(2), swarm::Vote::ACK);
+    EXPECT_EQ(voting_ptr->vote_status(2), swarm::Vote::ACK);
 }
 
 TEST(TaskEngine, YanlisTransactionIdliOyYokSayilir)
 {
-    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+    swarm::SwarmManager& manager = prepare_as_drone(1, swarm::DroneRole::SCOUT);
 
-    auto oylama = std::make_unique<swarm::ConsensusTask>(
+    auto voting = std::make_unique<swarm::ConsensusTask>(
             77, std::vector<uint8_t>{2}, 5000ms);
-    swarm::ConsensusTask* oylama_ptr = oylama.get();
-    yonetici.push_task(std::move(oylama));
+    swarm::ConsensusTask* voting_ptr = voting.get();
+    manager.push_task(std::move(voting));
 
-    swarm::Consensus oy;
-    oy.transaction_id(999);   // baska bir oylama turuna ait
-    oy.sender_id(2);
-    oy.vote(swarm::Vote::ACK);
-    yonetici.add_command(swarm::Command::consensus_oyu(oy));
+    swarm::Consensus vote;
+    vote.transaction_id(999);   // baska bir oylama turuna ait
+    vote.sender_id(2);
+    vote.vote(swarm::Vote::ACK);
+    manager.add_command(swarm::Command::consensus_vote(vote));
 
-    yonetici.task_engine_adimi(BASLANGIC);
+    manager.task_engine_step(START);
 
-    EXPECT_EQ(oylama_ptr->oy_durumu(2), swarm::Vote::PENDING);
+    EXPECT_EQ(voting_ptr->vote_status(2), swarm::Vote::PENDING);
 }
 
 TEST(TaskEngine, ConsensusIptalindeTumGorevKuyruguBosaltilir)
 {
     // Bolum 2/3.6: oylama basarisizsa yalnizca o task bitmez, TUM gorev
     // iptal edilir ve suru IdleTask'a doner.
-    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+    swarm::SwarmManager& manager = prepare_as_drone(1, swarm::DroneRole::SCOUT);
 
-    yonetici.push_task(std::make_unique<swarm::ConsensusTask>(
+    manager.push_task(std::make_unique<swarm::ConsensusTask>(
             88, std::vector<uint8_t>{2, 3}, 5000ms));
-    // Oylama gecerse yapilacak gorevler de kuyrukta bekliyor:
-    yonetici.push_task(std::make_unique<swarm::ScoutSearchTask>(
-            yonetici.drone_state(), 100.0, 100.0));
-    yonetici.push_task(std::make_unique<swarm::HoverTask>(
-            yonetici.drone_state(), 1000ms));
-    ASSERT_EQ(yonetici.task_queue_size(), 3u);
+    // Oylama gecerse yapilacak gorevler de queue'da bekliyor:
+    manager.push_task(std::make_unique<swarm::ScoutSearchTask>(
+            manager.drone_state(), 100.0, 100.0));
+    manager.push_task(std::make_unique<swarm::HoverTask>(
+            manager.drone_state(), 1000ms));
+    ASSERT_EQ(manager.task_queue_size(), 3u);
 
     // Oylama baslar ama kimse cevap vermez; 5 saniye sonra timeout.
-    yonetici.task_engine_adimi(BASLANGIC);
-    ASSERT_EQ(yonetici.task_queue_size(), 3u);
+    manager.task_engine_step(START);
+    ASSERT_EQ(manager.task_queue_size(), 3u);
 
-    yonetici.task_engine_adimi(BASLANGIC + 5s);
+    manager.task_engine_step(START + 5s);
 
     // Bekleyen TUM gorevler iptal edildi.
-    EXPECT_EQ(yonetici.task_queue_size(), 0u);
+    EXPECT_EQ(manager.task_queue_size(), 0u);
 
     // Bir sonraki turda IdleTask'a dusuluyor.
-    yonetici.task_engine_adimi(BASLANGIC + 5s + 20ms);
-    ASSERT_NE(yonetici.current_task(), nullptr);
-    EXPECT_EQ(yonetici.current_task()->get_type(), swarm::TaskType::IDLE);
+    manager.task_engine_step(START + 5s + 20ms);
+    ASSERT_NE(manager.current_task(), nullptr);
+    EXPECT_EQ(manager.current_task()->get_type(), swarm::TaskType::IDLE);
 }
 
 TEST(TaskEngine, BasariliConsensusSonrasiSiradakiGoreveGecilir)
 {
-    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+    swarm::SwarmManager& manager = prepare_as_drone(1, swarm::DroneRole::SCOUT);
 
-    yonetici.push_task(std::make_unique<swarm::ConsensusTask>(
+    manager.push_task(std::make_unique<swarm::ConsensusTask>(
             99, std::vector<uint8_t>{2}, 5000ms));
-    yonetici.push_task(std::make_unique<swarm::ScoutSearchTask>(
-            yonetici.drone_state(), 10.0, 0.0));
+    manager.push_task(std::make_unique<swarm::ScoutSearchTask>(
+            manager.drone_state(), 10.0, 0.0));
 
-    yonetici.task_engine_adimi(BASLANGIC);
+    manager.task_engine_step(START);
 
-    swarm::Consensus oy;
-    oy.transaction_id(99);
-    oy.sender_id(2);
-    oy.vote(swarm::Vote::ACK);
-    yonetici.add_command(swarm::Command::consensus_oyu(oy));
+    swarm::Consensus vote;
+    vote.transaction_id(99);
+    vote.sender_id(2);
+    vote.vote(swarm::Vote::ACK);
+    manager.add_command(swarm::Command::consensus_vote(vote));
 
-    yonetici.task_engine_adimi(BASLANGIC + 20ms);
+    manager.task_engine_step(START + 20ms);
 
     // Oylama COMMITTED oldu, gorev iptal edilmedi, siradakine gecildi.
-    ASSERT_NE(yonetici.current_task(), nullptr);
-    EXPECT_EQ(yonetici.current_task()->get_type(), swarm::TaskType::SCOUT_SEARCH);
+    ASSERT_NE(manager.current_task(), nullptr);
+    EXPECT_EQ(manager.current_task()->get_type(), swarm::TaskType::SCOUT_SEARCH);
 }
 
 // --- TaskAllocationEngine dogrudan -----------------------------------------
@@ -627,12 +627,12 @@ TEST(TaskAllocationEngine, RolEslesmesiniDogruKarar)
     swarm::SwarmConfig gcs;
     gcs.node_type = swarm::NodeType::GCS;
 
-    const swarm::TaskAllocation scout_emri = gorev_emri_olustur(1, swarm::DroneRole::SCOUT);
-    const swarm::TaskAllocation striker_emri = gorev_emri_olustur(2, swarm::DroneRole::STRIKER);
+    const swarm::TaskAllocation scout_order = create_task_order(1, swarm::DroneRole::SCOUT);
+    const swarm::TaskAllocation striker_order = create_task_order(2, swarm::DroneRole::STRIKER);
 
-    EXPECT_TRUE(swarm::TaskAllocationEngine::bu_dugumu_ilgilendiriyor(scout_emri, scout));
-    EXPECT_FALSE(swarm::TaskAllocationEngine::bu_dugumu_ilgilendiriyor(striker_emri, scout));
-    EXPECT_FALSE(swarm::TaskAllocationEngine::bu_dugumu_ilgilendiriyor(scout_emri, gcs));
+    EXPECT_TRUE(swarm::TaskAllocationEngine::concerns_this_node(scout_order, scout));
+    EXPECT_FALSE(swarm::TaskAllocationEngine::concerns_this_node(striker_order, scout));
+    EXPECT_FALSE(swarm::TaskAllocationEngine::concerns_this_node(scout_order, gcs));
 }
 
 // ============================================================================
@@ -642,24 +642,24 @@ TEST(TaskAllocationEngine, RolEslesmesiniDogruKarar)
 namespace {
 
 // GCS kimliğiyle hazırlanmış temiz bir SwarmManager (bu dosyaya özel).
-swarm::SwarmManager& gcs_olarak_hazirla_yerel()
+swarm::SwarmManager& prepare_as_gcs_local()
 {
-    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
+    swarm::SwarmManager& manager = swarm::SwarmManager::get_instance();
     swarm::SwarmConfig config;
     config.drone_id = 0;
     config.node_type = swarm::NodeType::GCS;
-    yonetici.init(config);
-    return yonetici;
+    manager.init(config);
+    return manager;
 }
 
-swarm::Heartbeat peer_heartbeat_olustur(uint8_t drone_id, swarm::DroneRole rol)
+swarm::Heartbeat create_peer_heartbeat(uint8_t drone_id, swarm::DroneRole role)
 {
-    swarm::Heartbeat kalp_atisi;
-    kalp_atisi.drone_id(drone_id);
-    kalp_atisi.node_type(swarm::NodeType::DRONE);
-    kalp_atisi.role(rol);
-    kalp_atisi.current_task(swarm::TaskType::IDLE);
-    return kalp_atisi;
+    swarm::Heartbeat heartbeat;
+    heartbeat.drone_id(drone_id);
+    heartbeat.node_type(swarm::NodeType::DRONE);
+    heartbeat.role(role);
+    heartbeat.current_task(swarm::TaskType::IDLE);
+    return heartbeat;
 }
 
 }  // namespace
@@ -668,235 +668,235 @@ swarm::Heartbeat peer_heartbeat_olustur(uint8_t drone_id, swarm::DroneRole rol)
 
 TEST(UpdatePeerList, GelenHeartbeatPeeriTabloyaEkler)
 {
-    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
-    ASSERT_EQ(yonetici.peer_count(), 0u);
+    swarm::SwarmManager& manager = prepare_as_drone(1, swarm::DroneRole::SCOUT);
+    ASSERT_EQ(manager.peer_count(), 0u);
 
-    yonetici.on_heartbeat_received(peer_heartbeat_olustur(2, swarm::DroneRole::STRIKER),
-                                   BASLANGIC);
+    manager.on_heartbeat_received(create_peer_heartbeat(2, swarm::DroneRole::STRIKER),
+                                   START);
 
-    EXPECT_EQ(yonetici.peer_count(), 1u);
-    EXPECT_EQ(yonetici.online_peer_count(), 1u);
+    EXPECT_EQ(manager.peer_count(), 1u);
+    EXPECT_EQ(manager.online_peer_count(), 1u);
 }
 
 TEST(UpdatePeerList, KendiYayinimizTabloyaEklenmez)
 {
     // Multicast'te kendi heartbeat'imizi geri duyabiliriz; kendimizi peer
     // olarak saymamalıyız.
-    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+    swarm::SwarmManager& manager = prepare_as_drone(1, swarm::DroneRole::SCOUT);
 
-    yonetici.on_heartbeat_received(peer_heartbeat_olustur(1, swarm::DroneRole::SCOUT),
-                                   BASLANGIC);
+    manager.on_heartbeat_received(create_peer_heartbeat(1, swarm::DroneRole::SCOUT),
+                                   START);
 
-    EXPECT_EQ(yonetici.peer_count(), 0u);
+    EXPECT_EQ(manager.peer_count(), 0u);
 }
 
 TEST(UpdatePeerList, SusanPeerZamanAsimiylaOfflineOlur)
 {
-    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+    swarm::SwarmManager& manager = prepare_as_drone(1, swarm::DroneRole::SCOUT);
 
-    yonetici.on_heartbeat_received(peer_heartbeat_olustur(2, swarm::DroneRole::STRIKER),
-                                   BASLANGIC);
-    ASSERT_EQ(yonetici.online_peer_count(), 1u);
+    manager.on_heartbeat_received(create_peer_heartbeat(2, swarm::DroneRole::STRIKER),
+                                   START);
+    ASSERT_EQ(manager.online_peer_count(), 1u);
 
     // Varsayılan zaman aşımı 3 saniye (PeerManager).
-    yonetici.update_peer_list(BASLANGIC + 2s);
-    EXPECT_EQ(yonetici.online_peer_count(), 1u);
+    manager.update_peer_list(START + 2s);
+    EXPECT_EQ(manager.online_peer_count(), 1u);
 
-    yonetici.update_peer_list(BASLANGIC + 4s);
-    EXPECT_EQ(yonetici.online_peer_count(), 0u);
+    manager.update_peer_list(START + 4s);
+    EXPECT_EQ(manager.online_peer_count(), 0u);
     // Kayıt silinmez: "tanıyorduk ama şimdi kayıp" bilgisi korunur.
-    EXPECT_EQ(yonetici.peer_count(), 1u);
+    EXPECT_EQ(manager.peer_count(), 1u);
 }
 
 TEST(UpdatePeerList, GeriDonenPeerTekrarOnlineOlur)
 {
-    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+    swarm::SwarmManager& manager = prepare_as_drone(1, swarm::DroneRole::SCOUT);
 
-    yonetici.on_heartbeat_received(peer_heartbeat_olustur(2, swarm::DroneRole::STRIKER),
-                                   BASLANGIC);
-    yonetici.update_peer_list(BASLANGIC + 4s);
-    ASSERT_EQ(yonetici.online_peer_count(), 0u);
+    manager.on_heartbeat_received(create_peer_heartbeat(2, swarm::DroneRole::STRIKER),
+                                   START);
+    manager.update_peer_list(START + 4s);
+    ASSERT_EQ(manager.online_peer_count(), 0u);
 
-    yonetici.on_heartbeat_received(peer_heartbeat_olustur(2, swarm::DroneRole::STRIKER),
-                                   BASLANGIC + 5s);
+    manager.on_heartbeat_received(create_peer_heartbeat(2, swarm::DroneRole::STRIKER),
+                                   START + 5s);
 
-    EXPECT_EQ(yonetici.online_peer_count(), 1u);
+    EXPECT_EQ(manager.online_peer_count(), 1u);
 }
 
 TEST(UpdatePeerList, KendiTelemetrimizReddedilir)
 {
-    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+    swarm::SwarmManager& manager = prepare_as_drone(1, swarm::DroneRole::SCOUT);
 
-    swarm::Telemetry kendi;
-    kendi.drone_id(1);
-    kendi.seq_num(5);
+    swarm::Telemetry own;
+    own.drone_id(1);
+    own.seq_num(5);
 
-    EXPECT_FALSE(yonetici.on_telemetry_received(kendi, BASLANGIC));
+    EXPECT_FALSE(manager.on_telemetry_received(own, START));
 }
 
 // --- send_self_status ------------------------------------------------------
 
 TEST(SendSelfStatus, HeartbeatDogruAlanlarlaUretilir)
 {
-    swarm::SwarmManager& yonetici = drone_olarak_hazirla(3, swarm::DroneRole::STRIKER);
+    swarm::SwarmManager& manager = prepare_as_drone(3, swarm::DroneRole::STRIKER);
 
-    const swarm::Heartbeat uretilen = yonetici.build_heartbeat();
+    const swarm::Heartbeat produced = manager.build_heartbeat();
 
-    EXPECT_EQ(uretilen.drone_id(), 3u);
-    EXPECT_EQ(uretilen.node_type(), swarm::NodeType::DRONE);
-    EXPECT_EQ(uretilen.role(), swarm::DroneRole::STRIKER);
+    EXPECT_EQ(produced.drone_id(), 3u);
+    EXPECT_EQ(produced.node_type(), swarm::NodeType::DRONE);
+    EXPECT_EQ(produced.role(), swarm::DroneRole::STRIKER);
     // Kuyruk boşken INIT bildirilir.
-    EXPECT_EQ(uretilen.current_task(), swarm::TaskType::INIT);
+    EXPECT_EQ(produced.current_task(), swarm::TaskType::INIT);
 }
 
 TEST(SendSelfStatus, HeartbeatAktifGoreviBildirir)
 {
-    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+    swarm::SwarmManager& manager = prepare_as_drone(1, swarm::DroneRole::SCOUT);
 
-    yonetici.task_engine_adimi(BASLANGIC);  // IdleTask aktif olur
+    manager.task_engine_step(START);  // IdleTask aktif olur
 
-    EXPECT_EQ(yonetici.build_heartbeat().current_task(), swarm::TaskType::IDLE);
+    EXPECT_EQ(manager.build_heartbeat().current_task(), swarm::TaskType::IDLE);
 }
 
 TEST(SendSelfStatus, TelemetriSeqNumHerYayindaArtar)
 {
-    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+    swarm::SwarmManager& manager = prepare_as_drone(1, swarm::DroneRole::SCOUT);
 
-    const uint32_t birinci = yonetici.build_telemetry(BASLANGIC).seq_num();
-    const uint32_t ikinci = yonetici.build_telemetry(BASLANGIC).seq_num();
-    const uint32_t ucuncu = yonetici.build_telemetry(BASLANGIC).seq_num();
+    const uint32_t first = manager.build_telemetry(START).seq_num();
+    const uint32_t second_result = manager.build_telemetry(START).seq_num();
+    const uint32_t third = manager.build_telemetry(START).seq_num();
 
-    EXPECT_EQ(ikinci, birinci + 1);
-    EXPECT_EQ(ucuncu, birinci + 2);
+    EXPECT_EQ(second_result, first + 1);
+    EXPECT_EQ(third, first + 2);
 }
 
 TEST(SendSelfStatus, TelemetriKendiUcusDurumunuTasir)
 {
-    swarm::SwarmManager& yonetici = drone_olarak_hazirla(2, swarm::DroneRole::STRIKER);
-    yonetici.drone_state().x = 12.5;
-    yonetici.drone_state().z = 40.0;
-    yonetici.drone_state().battery = 73;
+    swarm::SwarmManager& manager = prepare_as_drone(2, swarm::DroneRole::STRIKER);
+    manager.drone_state().x = 12.5;
+    manager.drone_state().z = 40.0;
+    manager.drone_state().battery = 73;
 
-    const swarm::Telemetry telemetri = yonetici.build_telemetry(BASLANGIC);
+    const swarm::Telemetry telemetry = manager.build_telemetry(START);
 
-    EXPECT_EQ(telemetri.drone_id(), 2u);
-    EXPECT_DOUBLE_EQ(telemetri.x(), 12.5);
-    EXPECT_DOUBLE_EQ(telemetri.z(), 40.0);
-    EXPECT_EQ(telemetri.battery(), 73u);
+    EXPECT_EQ(telemetry.drone_id(), 2u);
+    EXPECT_DOUBLE_EQ(telemetry.x(), 12.5);
+    EXPECT_DOUBLE_EQ(telemetry.z(), 40.0);
+    EXPECT_EQ(telemetry.battery(), 73u);
 }
 
 TEST(SendSelfStatus, YayinlayiciBagliysaCagirilir)
 {
-    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+    swarm::SwarmManager& manager = prepare_as_drone(1, swarm::DroneRole::SCOUT);
 
     // Yayın kanalına bir lambda bağlıyoruz; DDS'in yerini test içinde bu
     // tutuyor. SwarmManager'ın DDS'i hiç tanımadan yayın yapabilmesinin
     // sebebi bu std::function katmanı.
-    int heartbeat_sayisi = 0;
-    int telemetri_sayisi = 0;
-    yonetici.set_heartbeat_publisher(
-            [&heartbeat_sayisi](const swarm::Heartbeat&) { ++heartbeat_sayisi; });
-    yonetici.set_telemetry_publisher(
-            [&telemetri_sayisi](const swarm::Telemetry&) { ++telemetri_sayisi; });
+    int heartbeat_count = 0;
+    int telemetry_count = 0;
+    manager.set_heartbeat_publisher(
+            [&heartbeat_count](const swarm::Heartbeat&) { ++heartbeat_count; });
+    manager.set_telemetry_publisher(
+            [&telemetry_count](const swarm::Telemetry&) { ++telemetry_count; });
 
-    yonetici.send_self_status(BASLANGIC);
-    yonetici.send_self_status(BASLANGIC + 100ms);
+    manager.send_self_status(START);
+    manager.send_self_status(START + 100ms);
 
-    EXPECT_EQ(heartbeat_sayisi, 2);
-    EXPECT_EQ(telemetri_sayisi, 2);
+    EXPECT_EQ(heartbeat_count, 2);
+    EXPECT_EQ(telemetry_count, 2);
 
     // Sonraki testleri etkilememesi için kanalları boşaltıyoruz.
-    yonetici.set_heartbeat_publisher(nullptr);
-    yonetici.set_telemetry_publisher(nullptr);
+    manager.set_heartbeat_publisher(nullptr);
+    manager.set_telemetry_publisher(nullptr);
 }
 
 // --- check_emergency -------------------------------------------------------
 
 TEST(CheckEmergency, SaglikliDurumdaAcilDurumYok)
 {
-    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+    swarm::SwarmManager& manager = prepare_as_drone(1, swarm::DroneRole::SCOUT);
 
-    EXPECT_FALSE(yonetici.check_emergency(BASLANGIC));
+    EXPECT_FALSE(manager.check_emergency(START));
 }
 
 TEST(CheckEmergency, KritikBataryaAcilDurumdur)
 {
-    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+    swarm::SwarmManager& manager = prepare_as_drone(1, swarm::DroneRole::SCOUT);
 
-    yonetici.drone_state().battery = swarm::SwarmManager::KRITIK_BATARYA_YUZDESI;
-    EXPECT_FALSE(yonetici.check_emergency(BASLANGIC));
+    manager.drone_state().battery = swarm::SwarmManager::CRITICAL_BATTERY_PERCENTAGE;
+    EXPECT_FALSE(manager.check_emergency(START));
 
-    yonetici.drone_state().battery =
-            static_cast<uint8_t>(swarm::SwarmManager::KRITIK_BATARYA_YUZDESI - 1);
-    EXPECT_TRUE(yonetici.check_emergency(BASLANGIC));
+    manager.drone_state().battery =
+            static_cast<uint8_t>(swarm::SwarmManager::CRITICAL_BATTERY_PERCENTAGE - 1);
+    EXPECT_TRUE(manager.check_emergency(START));
 }
 
 TEST(CheckEmergency, HicDuyulmayanDroneAcilDurumSayilmaz)
 {
     // Bölüm 2'deki non-blocking keşif: bir drone hiç ayağa kalkmayabilir.
     // Tabloya hiç girmediği için acil durum tetiklenmemeli.
-    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+    swarm::SwarmManager& manager = prepare_as_drone(1, swarm::DroneRole::SCOUT);
 
-    yonetici.update_peer_list(BASLANGIC + 10s);
+    manager.update_peer_list(START + 10s);
 
-    EXPECT_FALSE(yonetici.check_emergency(BASLANGIC + 10s));
+    EXPECT_FALSE(manager.check_emergency(START + 10s));
 }
 
 TEST(CheckEmergency, GelipKaybolanDroneAcilDurumdur)
 {
-    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+    swarm::SwarmManager& manager = prepare_as_drone(1, swarm::DroneRole::SCOUT);
 
-    yonetici.on_heartbeat_received(peer_heartbeat_olustur(2, swarm::DroneRole::STRIKER),
-                                   BASLANGIC);
-    ASSERT_FALSE(yonetici.check_emergency(BASLANGIC));
+    manager.on_heartbeat_received(create_peer_heartbeat(2, swarm::DroneRole::STRIKER),
+                                   START);
+    ASSERT_FALSE(manager.check_emergency(START));
 
     // Peer susuyor -> zaman aşımı -> OFFLINE -> acil durum.
-    yonetici.update_peer_list(BASLANGIC + 4s);
+    manager.update_peer_list(START + 4s);
 
-    EXPECT_TRUE(yonetici.check_emergency(BASLANGIC + 4s));
+    EXPECT_TRUE(manager.check_emergency(START + 4s));
 }
 
 TEST(CheckEmergency, AcilDurumdaFailSafeVeLandingKuyrugaGirer)
 {
     // Faz 6.4'ün birim test karşılığı: bir düğüm kaybolunca FailSafeTask
     // tetiklenmeli.
-    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+    swarm::SwarmManager& manager = prepare_as_drone(1, swarm::DroneRole::SCOUT);
 
-    yonetici.on_heartbeat_received(peer_heartbeat_olustur(2, swarm::DroneRole::STRIKER),
-                                   BASLANGIC);
-    yonetici.push_task(std::make_unique<swarm::ScoutSearchTask>(
-            yonetici.drone_state(), 500.0, 500.0));
+    manager.on_heartbeat_received(create_peer_heartbeat(2, swarm::DroneRole::STRIKER),
+                                   START);
+    manager.push_task(std::make_unique<swarm::ScoutSearchTask>(
+            manager.drone_state(), 500.0, 500.0));
 
     // Peer kayboluyor.
-    yonetici.update_peer_list(BASLANGIC + 4s);
-    yonetici.task_engine_adimi(BASLANGIC + 4s);
+    manager.update_peer_list(START + 4s);
+    manager.task_engine_step(START + 4s);
 
     // Devam eden görev iptal edilip güvenli diziye geçilmeli.
-    ASSERT_NE(yonetici.current_task(), nullptr);
-    EXPECT_EQ(yonetici.current_task()->get_type(), swarm::TaskType::FAIL_SAFE);
+    ASSERT_NE(manager.current_task(), nullptr);
+    EXPECT_EQ(manager.current_task()->get_type(), swarm::TaskType::FAIL_SAFE);
 
     // FailSafe bitince iniş gelir.
-    yonetici.task_engine_adimi(BASLANGIC + 6s);
-    ASSERT_NE(yonetici.current_task(), nullptr);
-    EXPECT_EQ(yonetici.current_task()->get_type(), swarm::TaskType::LANDING);
+    manager.task_engine_step(START + 6s);
+    ASSERT_NE(manager.current_task(), nullptr);
+    EXPECT_EQ(manager.current_task()->get_type(), swarm::TaskType::LANDING);
 }
 
 TEST(CheckEmergency, AcilDurumGorevleriHerTurdaTekrarEklenmez)
 {
-    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+    swarm::SwarmManager& manager = prepare_as_drone(1, swarm::DroneRole::SCOUT);
 
-    yonetici.on_heartbeat_received(peer_heartbeat_olustur(2, swarm::DroneRole::STRIKER),
-                                   BASLANGIC);
-    yonetici.update_peer_list(BASLANGIC + 4s);
+    manager.on_heartbeat_received(create_peer_heartbeat(2, swarm::DroneRole::STRIKER),
+                                   START);
+    manager.update_peer_list(START + 4s);
 
-    yonetici.task_engine_adimi(BASLANGIC + 4s);
-    const std::size_t ilk_boyut = yonetici.task_queue_size();
+    manager.task_engine_step(START + 4s);
+    const std::size_t initial_size = manager.task_queue_size();
 
-    yonetici.task_engine_adimi(BASLANGIC + 4s + 20ms);
-    yonetici.task_engine_adimi(BASLANGIC + 4s + 40ms);
+    manager.task_engine_step(START + 4s + 20ms);
+    manager.task_engine_step(START + 4s + 40ms);
 
     // Kuyruk büyümemeli; acil durum görevleri yalnızca ilk girişte eklenir.
-    EXPECT_LE(yonetici.task_queue_size(), ilk_boyut);
+    EXPECT_LE(manager.task_queue_size(), initial_size);
 }
 
 // ---------------------------------------------------------------------------
@@ -910,40 +910,40 @@ TEST(TaskEngine, BitenGorevinArdindanSiradakininTipiKaydedilir)
     // unutulmuştu. Sonuç: FailSafeTask bitip LandingTask başladığında
     // current_task_type() FAIL_SAFE'te kalıyor, heartbeat yanlış görev
     // bildiriyor ve geçiş log'a hiç yazılmıyordu.
-    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+    swarm::SwarmManager& manager = prepare_as_drone(1, swarm::DroneRole::SCOUT);
 
-    yonetici.push_task(std::make_unique<swarm::InitTask>());
-    yonetici.push_task(std::make_unique<swarm::HoverTask>(yonetici.drone_state(), 1000ms));
+    manager.push_task(std::make_unique<swarm::InitTask>());
+    manager.push_task(std::make_unique<swarm::HoverTask>(manager.drone_state(), 1000ms));
 
     // InitTask tek turda hem başlar hem biter; aynı adımda HoverTask
     // devralır. Asıl sınanan şey: devralan görevin tipi KAYDEDİLİYOR mu?
-    yonetici.task_engine_adimi(BASLANGIC);
+    manager.task_engine_step(START);
 
-    EXPECT_EQ(yonetici.current_task_type(), swarm::TaskType::HOVER);
-    ASSERT_NE(yonetici.current_task(), nullptr);
-    EXPECT_EQ(yonetici.current_task()->get_type(), swarm::TaskType::HOVER);
+    EXPECT_EQ(manager.current_task_type(), swarm::TaskType::HOVER);
+    ASSERT_NE(manager.current_task(), nullptr);
+    EXPECT_EQ(manager.current_task()->get_type(), swarm::TaskType::HOVER);
 
     // HoverTask süresi dolmadan tip değişmemeli.
-    yonetici.task_engine_adimi(BASLANGIC + 20ms);
-    EXPECT_EQ(yonetici.current_task_type(), swarm::TaskType::HOVER);
+    manager.task_engine_step(START + 20ms);
+    EXPECT_EQ(manager.current_task_type(), swarm::TaskType::HOVER);
 }
 
 TEST(TaskEngine, AcilDurumdaFailSafeSonrasiLandingTipiKaydedilir)
 {
     // Faz 6.4'ün birim test karşılığı: FailSafe -> Landing geçişi hem
-    // kuyrukta hem de kaydedilen tipte görünmeli.
-    swarm::SwarmManager& yonetici = drone_olarak_hazirla(1, swarm::DroneRole::SCOUT);
+    // queue'da hem de kaydedilen tipte görünmeli.
+    swarm::SwarmManager& manager = prepare_as_drone(1, swarm::DroneRole::SCOUT);
 
-    yonetici.on_heartbeat_received(peer_heartbeat_olustur(2, swarm::DroneRole::STRIKER),
-                                   BASLANGIC);
-    yonetici.update_peer_list(BASLANGIC + 4s);
+    manager.on_heartbeat_received(create_peer_heartbeat(2, swarm::DroneRole::STRIKER),
+                                   START);
+    manager.update_peer_list(START + 4s);
 
-    yonetici.task_engine_adimi(BASLANGIC + 4s);
-    ASSERT_EQ(yonetici.current_task_type(), swarm::TaskType::FAIL_SAFE);
+    manager.task_engine_step(START + 4s);
+    ASSERT_EQ(manager.current_task_type(), swarm::TaskType::FAIL_SAFE);
 
     // FailSafe değerlendirme süresi (1 sn) dolunca iniş başlamalı.
-    yonetici.task_engine_adimi(BASLANGIC + 6s);
-    EXPECT_EQ(yonetici.current_task_type(), swarm::TaskType::LANDING);
+    manager.task_engine_step(START + 6s);
+    EXPECT_EQ(manager.current_task_type(), swarm::TaskType::LANDING);
 }
 
 TEST(TaskEngine, AyniTurdaGelenTumOylarConsensusuCommitEder)
@@ -953,46 +953,46 @@ TEST(TaskEngine, AyniTurdaGelenTumOylarConsensusuCommitEder)
     // ConsensusTask::on_enter() sonucu PENDING'e sıfırladığı için, aynı
     // turda gelen tüm ACK'lerle verilmiş COMMITTED kararı siliniyor ve
     // oylama 5 saniye sonra hatalı biçimde zaman aşımına düşüyordu.
-    swarm::SwarmManager& yonetici = gcs_olarak_hazirla_yerel();
+    swarm::SwarmManager& manager = prepare_as_gcs_local();
 
-    yonetici.request_consensus(500, {1, 2, 3});
+    manager.request_consensus(500, {1, 2, 3});
 
-    // Oylar, görev daha kuyruğa girmeden komut kuyruğuna düşüyor —
+    // Oylar, görev daha queue'ya girmeden komut queue'suna düşüyor —
     // gerçek sistemde ağ, Task Engine'in 20 ms'lik turundan hızlı davranıyor.
     for (uint8_t drone_id : {1, 2, 3})
     {
-        swarm::Consensus oy;
-        oy.transaction_id(500);
-        oy.sender_id(drone_id);
-        oy.vote(swarm::Vote::ACK);
-        yonetici.add_command(swarm::Command::consensus_oyu(oy));
+        swarm::Consensus vote;
+        vote.transaction_id(500);
+        vote.sender_id(drone_id);
+        vote.vote(swarm::Vote::ACK);
+        manager.add_command(swarm::Command::consensus_vote(vote));
     }
 
-    yonetici.task_engine_adimi(BASLANGIC);
+    manager.task_engine_step(START);
 
-    const swarm::SwarmManager::ConsensusSonucu sonuc = yonetici.last_consensus_result();
-    ASSERT_TRUE(sonuc.gecerli);
-    EXPECT_EQ(sonuc.transaction_id, 500u);
-    EXPECT_EQ(sonuc.sonuc, swarm::ConsensusResult::COMMITTED);
-    EXPECT_FALSE(sonuc.timeout_ile_iptal);
+    const swarm::SwarmManager::ConsensusOutcome result = manager.last_consensus_result();
+    ASSERT_TRUE(result.valid);
+    EXPECT_EQ(result.transaction_id, 500u);
+    EXPECT_EQ(result.result, swarm::ConsensusResult::COMMITTED);
+    EXPECT_FALSE(result.cancelled_by_timeout);
 }
 
 TEST(TaskEngine, AyniTurdaGelenNackConsensusuIptalEder)
 {
-    swarm::SwarmManager& yonetici = gcs_olarak_hazirla_yerel();
+    swarm::SwarmManager& manager = prepare_as_gcs_local();
 
-    yonetici.request_consensus(501, {1, 2});
+    manager.request_consensus(501, {1, 2});
 
-    swarm::Consensus oy;
-    oy.transaction_id(501);
-    oy.sender_id(1);
-    oy.vote(swarm::Vote::NACK);
-    yonetici.add_command(swarm::Command::consensus_oyu(oy));
+    swarm::Consensus vote;
+    vote.transaction_id(501);
+    vote.sender_id(1);
+    vote.vote(swarm::Vote::NACK);
+    manager.add_command(swarm::Command::consensus_vote(vote));
 
-    yonetici.task_engine_adimi(BASLANGIC);
+    manager.task_engine_step(START);
 
-    const swarm::SwarmManager::ConsensusSonucu sonuc = yonetici.last_consensus_result();
-    ASSERT_TRUE(sonuc.gecerli);
-    EXPECT_EQ(sonuc.sonuc, swarm::ConsensusResult::ABORTED);
-    EXPECT_FALSE(sonuc.timeout_ile_iptal);
+    const swarm::SwarmManager::ConsensusOutcome result = manager.last_consensus_result();
+    ASSERT_TRUE(result.valid);
+    EXPECT_EQ(result.result, swarm::ConsensusResult::ABORTED);
+    EXPECT_FALSE(result.cancelled_by_timeout);
 }

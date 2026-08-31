@@ -35,8 +35,7 @@ struct Heartbeat
     // Yalnızca node_type == DRONE iken anlamlıdır (Bölüm 3.5).
     DroneRole role;
 
-    // "Şu an ne yapıyor" — aktif Task'ın tipi. Task Engine'e geçildikten
-    // sonra durumun doğru karşılığı budur; eski bir SwarmState alanı yok.
+    // "Şu an ne yapıyor" — aktif Task'ın tipi.
     TaskType current_task;
 };
 

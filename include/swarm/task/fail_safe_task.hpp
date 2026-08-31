@@ -19,11 +19,11 @@ namespace swarm {
 class FailSafeTask : public Task
 {
 public:
-    static constexpr std::chrono::milliseconds VARSAYILAN_DEGERLENDIRME_SURESI{1000};
+    static constexpr std::chrono::milliseconds DEFAULT_ASSESSMENT_DURATION{1000};
 
     explicit FailSafeTask(
-            DroneState& durum,
-            std::chrono::milliseconds degerlendirme_suresi = VARSAYILAN_DEGERLENDIRME_SURESI);
+            DroneState& state,
+            std::chrono::milliseconds assessment_duration = DEFAULT_ASSESSMENT_DURATION);
 
     void on_enter(TimePoint now) override;
     void run(TimePoint now) override;
@@ -32,10 +32,10 @@ public:
     TaskType get_type() const override;
 
 private:
-    DroneState& durum_;
-    std::chrono::milliseconds degerlendirme_suresi_;
-    TimePoint baslangic_{};
-    bool tamamlandi_ = false;
+    DroneState& state_;
+    std::chrono::milliseconds assessment_duration_;
+    TimePoint start_{};
+    bool finished_ = false;
 };
 
 }  // namespace swarm

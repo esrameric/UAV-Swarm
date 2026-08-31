@@ -13,47 +13,47 @@
 set -uo pipefail
 
 DOCKER="${DOCKER:-docker}"
-DEPO_KOKU="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SERTIFIKA_DIZINI="$DEPO_KOKU/docker/ca-certificates"
-HOST_SERTIFIKALARI="/usr/local/share/ca-certificates"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CERT_DIR="$REPO_ROOT/docker/ca-certificates"
+HOST_CERTS="/usr/local/share/ca-certificates"
 
-kopyalanan_sertifikalar=()
+copied_certs=()
 
-temizle() {
+cleanup() {
     # Build bittikten sonra kopyalanan sertifikaları depodan siliyoruz;
     # kuruma özgü dosyalar çalışma ağacında kalmasın.
     local dosya
-    for dosya in "${kopyalanan_sertifikalar[@]:-}"; do
+    for dosya in "${copied_certs[@]:-}"; do
         [ -n "$dosya" ] && rm -f "$dosya"
     done
 }
-trap temizle EXIT
+trap cleanup EXIT
 
-mkdir -p "$SERTIFIKA_DIZINI"
+mkdir -p "$CERT_DIR"
 
-if [ -d "$HOST_SERTIFIKALARI" ]; then
+if [ -d "$HOST_CERTS" ]; then
     shopt -s nullglob
-    for sertifika in "$HOST_SERTIFIKALARI"/*.crt; do
-        hedef="$SERTIFIKA_DIZINI/$(basename "$sertifika")"
-        cp "$sertifika" "$hedef" 2>/dev/null || continue
-        kopyalanan_sertifikalar+=("$hedef")
+    for cert in "$HOST_CERTS"/*.crt; do
+        dest="$CERT_DIR/$(basename "$cert")"
+        cp "$cert" "$dest" 2>/dev/null || continue
+        copied_certs+=("$dest")
     done
     shopt -u nullglob
 fi
 
-if [ "${#kopyalanan_sertifikalar[@]}" -gt 0 ]; then
-    echo "-- ${#kopyalanan_sertifikalar[@]} adet kurumsal kok sertifikasi build context'ine kopyalandi"
+if [ "${#copied_certs[@]}" -gt 0 ]; then
+    echo "-- ${#copied_certs[@]} adet kurumsal kok sertifikasi build context'ine kopyalandi"
 else
     echo "-- ek kok sertifikasi yok (kurumsal proxy arkasinda degilsiniz)"
 fi
 
 echo "-- imaj derleniyor: swarm_node:latest"
-$DOCKER build -f "$DEPO_KOKU/docker/Dockerfile" -t swarm_node:latest "$DEPO_KOKU"
-sonuc=$?
+$DOCKER build -f "$REPO_ROOT/docker/Dockerfile" -t swarm_node:latest "$REPO_ROOT"
+result=$?
 
-if [ $sonuc -eq 0 ]; then
+if [ $result -eq 0 ]; then
     echo "SONUC: BASARILI - swarm_node:latest hazir"
 else
-    echo "SONUC: BASARISIZ - docker build $sonuc koduyla dondu"
+    echo "SONUC: BASARISIZ - docker build $result koduyla dondu"
 fi
-exit $sonuc
+exit $result

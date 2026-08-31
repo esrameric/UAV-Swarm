@@ -14,15 +14,15 @@ namespace swarm {
 class ScoutSearchTask : public Task
 {
 public:
-    static constexpr double YATAY_HIZ_M_S = 5.0;
-    static constexpr double VARIS_TOLERANSI_M = 0.5;
-    static constexpr std::chrono::milliseconds VARSAYILAN_TARAMA_SURESI{5000};
+    static constexpr double HORIZONTAL_SPEED_M_S = 5.0;
+    static constexpr double ARRIVAL_TOLERANCE_M = 0.5;
+    static constexpr std::chrono::milliseconds DEFAULT_SCAN_DURATION{5000};
 
     ScoutSearchTask(
-            DroneState& durum,
-            double merkez_x,
-            double merkez_y,
-            std::chrono::milliseconds tarama_suresi = VARSAYILAN_TARAMA_SURESI);
+            DroneState& state,
+            double center_x,
+            double center_y,
+            std::chrono::milliseconds scan_duration = DEFAULT_SCAN_DURATION);
 
     void on_enter(TimePoint now) override;
     void run(TimePoint now) override;
@@ -31,18 +31,18 @@ public:
     TaskType get_type() const override;
 
     // Arama bölgesine varıldı mı? (test ve log için)
-    bool bolgeye_varildi() const { return bolgeye_varildi_; }
+    bool region_reached() const { return region_reached_; }
 
 private:
-    DroneState& durum_;
-    double merkez_x_;
-    double merkez_y_;
-    std::chrono::milliseconds tarama_suresi_;
+    DroneState& state_;
+    double center_x_;
+    double center_y_;
+    std::chrono::milliseconds scan_duration_;
 
-    TimePoint son_calisma_{};
-    TimePoint tarama_baslangici_{};
-    bool bolgeye_varildi_ = false;
-    bool tamamlandi_ = false;
+    TimePoint last_update_{};
+    TimePoint scan_start_{};
+    bool region_reached_ = false;
+    bool finished_ = false;
 };
 
 }  // namespace swarm

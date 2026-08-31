@@ -15,37 +15,37 @@ set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 echo "== Faz 6.2: Consensus (2PC) entegrasyon testi =="
-temizlikle_bitir
-suruyu_durdur
-suruyu_baslat
+cleanup_on_exit
+stop_swarm
+start_swarm
 
-baslik "Sürü hazır"
-dogrula_log gcs_node "yeni peer: id=3" 60 "GCS üç drone'u da keşfetti"
+section "Sürü hazır"
+verify_log gcs_node "yeni peer: id=3" 60 "GCS üç drone'u da keşfetti"
 
-baslik "Aşama 1 — Teklif"
-dogrula_log gcs_node "\[gcs\] gorev teklif ediliyor rol=SCOUT" 40 "GCS ilk görevi teklif etti (SCOUT)"
-dogrula_log gcs_node "\[gcs\] gorev teklif ediliyor.*online drone=3" 40 "Teklif anında 3 drone da ONLINE sayıldı"
-dogrula_log gcs_node "\[task\] gecis: IDLE -> CONSENSUS" 20 "GCS ConsensusTask'a geçti"
+section "Aşama 1 — Teklif"
+verify_log gcs_node "\[gcs\] gorev teklif ediliyor rol=SCOUT" 40 "GCS ilk görevi teklif etti (SCOUT)"
+verify_log gcs_node "\[gcs\] gorev teklif ediliyor.*online drone=3" 40 "Teklif anında 3 drone da ONLINE sayıldı"
+verify_log gcs_node "\[task\] gecis: IDLE -> CONSENSUS" 20 "GCS ConsensusTask'a geçti"
 
-baslik "Aşama 2 — Oylar"
-dogrula_log drone_scout     "\[consensus\] oy veriliyor tx=1 vote=ACK" 30 "Gözcü ACK verdi"
-dogrula_log drone_striker_1 "\[consensus\] oy veriliyor tx=1 vote=ACK" 30 "Müdahale-1 ACK verdi"
-dogrula_log drone_striker_2 "\[consensus\] oy veriliyor tx=1 vote=ACK" 30 "Müdahale-2 ACK verdi"
+section "Aşama 2 — Oylar"
+verify_log drone_scout     "\[consensus\] oy veriliyor tx=1 vote=ACK" 30 "Gözcü ACK verdi"
+verify_log drone_striker_1 "\[consensus\] oy veriliyor tx=1 vote=ACK" 30 "Müdahale-1 ACK verdi"
+verify_log drone_striker_2 "\[consensus\] oy veriliyor tx=1 vote=ACK" 30 "Müdahale-2 ACK verdi"
 
-baslik "Aşama 3 — Sonuç: %100 ACK"
-dogrula_log gcs_node "\[consensus\] sonuc tx=1 COMMITTED" 30 "Oylama COMMITTED ile bitti"
-dogrula_log gcs_node "\[gcs\] gorev emri yayinlandi task_id=1" 30 "Görev emri oybirliğinden SONRA yayınlandı"
+section "Aşama 3 — Sonuç: %100 ACK"
+verify_log gcs_node "\[consensus\] sonuc tx=1 COMMITTED" 30 "Oylama COMMITTED ile bitti"
+verify_log gcs_node "\[gcs\] gorev emri yayinlandi task_id=1" 30 "Görev emri oybirliğinden SONRA yayınlandı"
 
-baslik "Emir sürüye ulaştı ve göreve dönüştü"
-dogrula_log drone_scout "\[task\] gecis: IDLE -> SCOUT_SEARCH" 30 "Gözcü emri alıp arama görevine geçti"
+section "Emir sürüye ulaştı ve göreve dönüştü"
+verify_log drone_scout "\[task\] gecis: IDLE -> SCOUT_SEARCH" 30 "Gözcü emri alıp arama görevine geçti"
 
-baslik "İptal olmadı"
-dogrula_log_yok gcs_node "gorev IPTAL edildi task_id=1" 2 "İlk görev iptal edilmedi"
-dogrula_log_yok gcs_node "ABORTED" 1 "Hiçbir oylama ABORTED olmadı"
+section "İptal olmadı"
+verify_log_absent gcs_node "gorev IPTAL edildi task_id=1" 2 "İlk görev iptal edilmedi"
+verify_log_absent gcs_node "ABORTED" 1 "Hiçbir oylama ABORTED olmadı"
 
-baslik "İkinci görev de aynı akışı izliyor"
-dogrula_log gcs_node "\[gcs\] gorev teklif ediliyor rol=STRIKER" 40 "GCS ikinci görevi teklif etti (STRIKER)"
-dogrula_log gcs_node "\[consensus\] sonuc tx=2 COMMITTED" 40 "İkinci oylama da COMMITTED"
-dogrula_log gcs_node "\[gcs\] gorev emri yayinlandi task_id=2" 30 "İkinci görev emri yayınlandı"
+section "İkinci görev de aynı akışı izliyor"
+verify_log gcs_node "\[gcs\] gorev teklif ediliyor rol=STRIKER" 40 "GCS ikinci görevi teklif etti (STRIKER)"
+verify_log gcs_node "\[consensus\] sonuc tx=2 COMMITTED" 40 "İkinci oylama da COMMITTED"
+verify_log gcs_node "\[gcs\] gorev emri yayinlandi task_id=2" 30 "İkinci görev emri yayınlandı"
 
-sonucu_bildir
+report_result

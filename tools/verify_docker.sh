@@ -13,18 +13,18 @@ set -uo pipefail
 # Docker komutu. Varsayılan `docker`; kısıtlı ortamlarda dışarıdan değiştirilir.
 DOCKER="${DOCKER:-docker}"
 
-hata_sayisi=0
+error_count=0
 
-basarili() { echo "  [OK]   $1"; }
-basarisiz() { echo "  [HATA] $1"; hata_sayisi=$((hata_sayisi + 1)); }
+ok() { echo "  [OK]   $1"; }
+fail() { echo "  [HATA] $1"; error_count=$((error_count + 1)); }
 
 echo "== Faz 0.4: Docker ortam doğrulaması =="
 
 # --- 1) docker CLI var mı? ---------------------------------------------------
 if $DOCKER --version >/dev/null 2>&1; then
-    basarili "docker CLI bulundu: $($DOCKER --version)"
+    ok "docker CLI bulundu: $($DOCKER --version)"
 else
-    basarisiz "docker CLI bulunamadı"
+    fail "docker CLI bulunamadı"
     echo "SONUC: BASARISIZ"; exit 1
 fi
 
@@ -32,42 +32,42 @@ fi
 # Bu proje `docker compose` (v2, eklenti) kullanır; eski `docker-compose`
 # (v1, ayrı python aracı) değil.
 if $DOCKER compose version >/dev/null 2>&1; then
-    basarili "docker compose bulundu: $($DOCKER compose version --short)"
+    ok "docker compose bulundu: $($DOCKER compose version --short)"
 else
-    basarisiz "docker compose (v2 eklentisi) bulunamadı"
+    fail "docker compose (v2 eklentisi) bulunamadı"
 fi
 
 # --- 3) Daemon ayakta ve erişilebilir mi? ------------------------------------
 if $DOCKER info >/dev/null 2>&1; then
-    basarili "docker daemon erişilebilir (server $($DOCKER version --format '{{.Server.Version}}'))"
+    ok "docker daemon erişilebilir (server $($DOCKER version --format '{{.Server.Version}}'))"
 else
-    basarisiz "docker daemon'a bağlanılamıyor (kullanıcı 'docker' grubunda mı?)"
+    fail "docker daemon'a bağlanılamıyor (kullanıcı 'docker' grubunda mı?)"
     echo "SONUC: BASARISIZ"; exit 1
 fi
 
 # --- 4) Gerçekten container çalıştırabiliyor muyuz? --------------------------
 if $DOCKER run --rm hello-world >/dev/null 2>&1; then
-    basarili "container çalıştırma testi (hello-world) geçti"
+    ok "container çalıştırma testi (hello-world) geçti"
 else
-    basarisiz "hello-world container'ı çalıştırılamadı"
+    fail "hello-world container'ı çalıştırılamadı"
 fi
 
 # --- 5) Custom bridge ağı oluşturulabiliyor mu? ------------------------------
 # Bölüm 4'teki mimari host networking DEĞİL, her container'a ayrı IP veren
 # custom bridge ağı kullanıyor. Bunun mümkün olduğunu burada doğruluyoruz.
-TEST_AG="swarm_bridge_probe"
-$DOCKER network rm "$TEST_AG" >/dev/null 2>&1
-if $DOCKER network create --driver bridge --subnet 172.31.250.0/24 "$TEST_AG" >/dev/null 2>&1; then
-    basarili "custom bridge ağı oluşturulabiliyor"
-    $DOCKER network rm "$TEST_AG" >/dev/null 2>&1
+TEST_NETWORK="swarm_bridge_probe"
+$DOCKER network rm "$TEST_NETWORK" >/dev/null 2>&1
+if $DOCKER network create --driver bridge --subnet 172.31.250.0/24 "$TEST_NETWORK" >/dev/null 2>&1; then
+    ok "custom bridge ağı oluşturulabiliyor"
+    $DOCKER network rm "$TEST_NETWORK" >/dev/null 2>&1
 else
-    basarisiz "custom bridge ağı oluşturulamadı"
+    fail "custom bridge ağı oluşturulamadı"
 fi
 
 echo
-if [ "$hata_sayisi" -eq 0 ]; then
+if [ "$error_count" -eq 0 ]; then
     echo "SONUC: BASARILI - Docker ortamı hazır"
     exit 0
 fi
-echo "SONUC: BASARISIZ - $hata_sayisi kontrol başarısız"
+echo "SONUC: BASARISIZ - $error_count kontrol başarısız"
 exit 1

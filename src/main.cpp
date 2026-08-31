@@ -40,51 +40,51 @@ using namespace std::chrono_literals;
 //
 // `volatile sig_atomic_t` yerine std::atomic<bool> kullanıyoruz; sinyal
 // işleyicisinden yazılıp ana döngüden okunması güvenli.
-std::atomic<bool> kapatma_istendi{false};
+std::atomic<bool> shutdown_requested{false};
 
-void sinyal_isleyici(int)
+void signal_handler(int)
 {
     // Sinyal işleyicisi içinde yapılabilecekler ÇOK kısıtlıdır: bellek
-    // ayırmak, kilit almak, std::cout kullanmak yasaktır. Bu yüzden burada
+    // ayırmak, lock almak, std::cout kullanmak yasaktır. Bu yüzden burada
     // yalnızca bir bayrak set ediyoruz; asıl kapanış ana döngüde oluyor.
-    kapatma_istendi = true;
+    shutdown_requested = true;
 }
 
 // --- DDS ile SwarmManager'ı birbirine bağlama -------------------------------
 //
 // SwarmManager DDS'i tanımıyor, FastDDSWrapper da uygulama mantığını
 // tanımıyor. İkisini birbirine bağlayan tek yer burası.
-void dds_ile_bagla(swarm::FastDDSWrapper& dds, swarm::SwarmManager& yonetici)
+void connect_dds(swarm::FastDDSWrapper& dds, swarm::SwarmManager& manager)
 {
     // Giden yön: SwarmManager yayınlamak istediğinde DDS'e verilir.
-    yonetici.set_heartbeat_publisher(
-            [&dds](const swarm::Heartbeat& mesaj) { dds.publish(mesaj); });
-    yonetici.set_telemetry_publisher(
-            [&dds](const swarm::Telemetry& mesaj) { dds.publish(mesaj); });
-    yonetici.set_consensus_publisher(
-            [&dds](const swarm::Consensus& mesaj) { dds.publish(mesaj); });
-    yonetici.set_task_allocation_publisher(
-            [&dds](const swarm::TaskAllocation& emir) { dds.publish(emir); });
+    manager.set_heartbeat_publisher(
+            [&dds](const swarm::Heartbeat& message) { dds.publish(message); });
+    manager.set_telemetry_publisher(
+            [&dds](const swarm::Telemetry& message) { dds.publish(message); });
+    manager.set_consensus_publisher(
+            [&dds](const swarm::Consensus& message) { dds.publish(message); });
+    manager.set_task_allocation_publisher(
+            [&dds](const swarm::TaskAllocation& order) { dds.publish(order); });
 
     // Gelen yön: DDS'ten mesaj geldiğinde SwarmManager'a aktarılır.
     //
-    // DİKKAT: bu geri çağırmalar DDS'in KENDİ thread'inden gelir. Bu yüzden
+    // DİKKAT: bu callback'ler DDS'in KENDİ thread'inden gelir. Bu yüzden
     // içeride uzun iş yapılmıyor — veri ya mutex korumalı peer table'a
-    // yazılıyor ya da komut kuyruğuna bırakılıp Thread 3'e devrediliyor.
-    dds.set_heartbeat_callback([&yonetici](const swarm::Heartbeat& mesaj) {
-        yonetici.on_heartbeat_received(mesaj, std::chrono::steady_clock::now());
+    // yazılıyor ya da komut queue'suna bırakılıp Thread 3'e devrediliyor.
+    dds.set_heartbeat_callback([&manager](const swarm::Heartbeat& message) {
+        manager.on_heartbeat_received(message, std::chrono::steady_clock::now());
     });
 
-    dds.set_telemetry_callback([&yonetici](const swarm::Telemetry& mesaj) {
-        yonetici.on_telemetry_received(mesaj, std::chrono::steady_clock::now());
+    dds.set_telemetry_callback([&manager](const swarm::Telemetry& message) {
+        manager.on_telemetry_received(message, std::chrono::steady_clock::now());
     });
 
-    dds.set_task_allocation_callback([&yonetici](const swarm::TaskAllocation& emir) {
-        yonetici.add_command(swarm::Command::gorev_emri(emir));
+    dds.set_task_allocation_callback([&manager](const swarm::TaskAllocation& order) {
+        manager.add_command(swarm::Command::task_order(order));
     });
 
-    dds.set_consensus_callback([&yonetici](const swarm::Consensus& mesaj) {
-        yonetici.add_command(swarm::Command::consensus_oyu(mesaj));
+    dds.set_consensus_callback([&manager](const swarm::Consensus& message) {
+        manager.add_command(swarm::Command::consensus_vote(message));
     });
 }
 
@@ -94,70 +94,70 @@ void dds_ile_bagla(swarm::FastDDSWrapper& dds, swarm::SwarmManager& yonetici)
 // görevlik sabit bir senaryo işletiliyor: önce Gözcü'ye arama, sonra
 // Müdahale drone'larına hedefe gidiş. Böylece heterojen rol ayrımı gerçek
 // bir akışta gözlemlenebiliyor.
-struct GcsGorevi
+struct GcsMission
 {
-    swarm::DroneRole hedef_rol;
-    double hedef_x;
-    double hedef_y;
+    swarm::DroneRole target_role;
+    double target_x;
+    double target_y;
 };
 
-void gcs_dongusu(swarm::SwarmManager& yonetici)
+void gcs_loop(swarm::SwarmManager& manager)
 {
-    swarm::GcsController gcs{yonetici};
+    swarm::GcsController gcs{manager};
 
-    const GcsGorevi gorevler[] = {
+    const GcsMission tasks[] = {
         {swarm::DroneRole::SCOUT, 80.0, 40.0},
         {swarm::DroneRole::STRIKER, 150.0, -60.0},
     };
-    constexpr std::size_t GOREV_SAYISI = sizeof(gorevler) / sizeof(gorevler[0]);
+    constexpr std::size_t TASK_COUNT = sizeof(tasks) / sizeof(tasks[0]);
 
-    std::size_t sonraki_gorev = 0;
-    bool teklif_bekleniyor = true;
-    auto sonraki_teklif_zamani = std::chrono::steady_clock::time_point{};
+    std::size_t next_task = 0;
+    bool proposal_pending = true;
+    auto next_proposal_time = std::chrono::steady_clock::time_point{};
 
     // Keşif için kısa bir pay: drone'ların ayağa kalkıp duyulması lazım.
     // Bölüm 2'deki non-blocking strateji gereği hepsini beklemiyoruz.
-    const auto kesif_bitisi = std::chrono::steady_clock::now() + 8s;
+    const auto discovery_deadline = std::chrono::steady_clock::now() + 8s;
 
-    while (!kapatma_istendi)
+    while (!shutdown_requested)
     {
-        const auto simdi = std::chrono::steady_clock::now();
+        const auto current_time = std::chrono::steady_clock::now();
 
-        if (teklif_bekleniyor && sonraki_gorev < GOREV_SAYISI &&
-            simdi >= kesif_bitisi && simdi >= sonraki_teklif_zamani)
+        if (proposal_pending && next_task < TASK_COUNT &&
+            current_time >= discovery_deadline && current_time >= next_proposal_time)
         {
-            const GcsGorevi& gorev = gorevler[sonraki_gorev];
+            const GcsMission& task = tasks[next_task];
 
             swarm::log("gcs", std::string("gorev teklif ediliyor rol=") +
-                              swarm::drone_role_adi(gorev.hedef_rol) +
-                              " x=" + std::to_string(gorev.hedef_x) +
-                              " y=" + std::to_string(gorev.hedef_y) +
+                              swarm::drone_role_name(task.target_role) +
+                              " x=" + std::to_string(task.target_x) +
+                              " y=" + std::to_string(task.target_y) +
                               " (online drone=" +
-                              std::to_string(yonetici.online_drone_ids().size()) + ")");
+                              std::to_string(manager.online_drone_ids().size()) + ")");
 
-            gcs.gorev_teklif_et(gorev.hedef_rol, gorev.hedef_x, gorev.hedef_y, simdi);
-            teklif_bekleniyor = false;
+            gcs.propose_task(task.target_role, task.target_x, task.target_y, current_time);
+            proposal_pending = false;
         }
 
-        gcs.adim(simdi);
+        gcs.step(current_time);
 
-        if (gcs.durum() == swarm::GcsController::Durum::GOREV_YAYINLANDI)
+        if (gcs.state() == swarm::GcsController::State::TASK_PUBLISHED)
         {
             swarm::log("gcs", "gorev emri yayinlandi task_id=" +
-                              std::to_string(gcs.aktif_transaction_id()));
-            ++sonraki_gorev;
-            teklif_bekleniyor = true;
-            sonraki_teklif_zamani = simdi + 3s;
-            gcs.sonucu_tuket();
+                              std::to_string(gcs.active_transaction_id()));
+            ++next_task;
+            proposal_pending = true;
+            next_proposal_time = current_time + 5s;
+            gcs.consume_result();
         }
-        else if (gcs.durum() == swarm::GcsController::Durum::IPTAL)
+        else if (gcs.state() == swarm::GcsController::State::CANCELLED)
         {
             swarm::log("gcs", "gorev IPTAL edildi task_id=" +
-                              std::to_string(gcs.aktif_transaction_id()));
-            ++sonraki_gorev;
-            teklif_bekleniyor = true;
-            sonraki_teklif_zamani = simdi + 3s;
-            gcs.sonucu_tuket();
+                              std::to_string(gcs.active_transaction_id()));
+            ++next_task;
+            proposal_pending = true;
+            next_proposal_time = current_time + 5s;
+            gcs.consume_result();
         }
 
         std::this_thread::sleep_for(200ms);
@@ -166,9 +166,9 @@ void gcs_dongusu(swarm::SwarmManager& yonetici)
 
 // Drone tarafı: SwarmManager'ın thread'leri işi yapıyor; ana thread yalnızca
 // kapatma işaretini bekliyor.
-void drone_dongusu()
+void drone_loop()
 {
-    while (!kapatma_istendi)
+    while (!shutdown_requested)
     {
         std::this_thread::sleep_for(200ms);
     }
@@ -179,28 +179,28 @@ void drone_dongusu()
 int main()
 {
     // SIGINT (Ctrl-C) ve SIGTERM (docker stop) yakalanıyor.
-    std::signal(SIGINT, sinyal_isleyici);
-    std::signal(SIGTERM, sinyal_isleyici);
+    std::signal(SIGINT, signal_handler);
+    std::signal(SIGTERM, signal_handler);
 
-    const swarm::ConfigSonucu config_sonucu = swarm::config_ortamdan_oku();
-    if (!config_sonucu.basarili)
+    const swarm::ConfigResult config_result = swarm::read_config_from_env();
+    if (!config_result.success)
     {
-        std::cerr << "[config] HATA: " << config_sonucu.hata << std::endl;
+        std::cerr << "[config] HATA: " << config_result.error << std::endl;
         return 1;
     }
-    const swarm::SwarmConfig config = config_sonucu.config;
+    const swarm::SwarmConfig config = config_result.config;
 
     swarm::log("node", std::string("baslatiliyor")
-                       + " node_type=" + swarm::node_type_adi(config.node_type)
+                       + " node_type=" + swarm::node_type_name(config.node_type)
                        + " drone_id=" + std::to_string(config.drone_id)
                        + " role=" + (config.node_type == swarm::NodeType::DRONE
-                                             ? swarm::drone_role_adi(config.role)
+                                             ? swarm::drone_role_name(config.role)
                                              : "-")
                        + " domain=" + std::to_string(config.domain_id));
 
-    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
-    yonetici.init(config);
-    yonetici.drone_state().battery = config_sonucu.baslangic_bataryasi;
+    swarm::SwarmManager& manager = swarm::SwarmManager::get_instance();
+    manager.init(config);
+    manager.drone_state().battery = config_result.starting_battery;
 
     // FastDDSWrapper yığında (stack) duruyor: main'den çıkarken yıkıcısı
     // otomatik çalışıp tüm DDS varlıklarını temizler (RAII).
@@ -211,22 +211,22 @@ int main()
         return 1;
     }
 
-    dds_ile_bagla(dds, yonetici);
+    connect_dds(dds, manager);
 
-    yonetici.run();
+    manager.run();
     swarm::log("node", "hazir - 3 thread calisiyor");
 
     if (config.node_type == swarm::NodeType::GCS)
     {
-        gcs_dongusu(yonetici);
+        gcs_loop(manager);
     }
     else
     {
-        drone_dongusu();
+        drone_loop();
     }
 
     swarm::log("node", "kapatiliyor");
-    yonetici.stop();
+    manager.stop();
     swarm::log("node", "kapandi");
 
     return 0;

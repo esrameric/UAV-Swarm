@@ -15,9 +15,9 @@
 
 namespace swarm {
 
-inline const char* node_type_adi(NodeType tip)
+inline const char* node_type_name(NodeType type)
 {
-    switch (tip)
+    switch (type)
     {
         case NodeType::DRONE: return "DRONE";
         case NodeType::GCS:   return "GCS";
@@ -25,9 +25,9 @@ inline const char* node_type_adi(NodeType tip)
     return "BILINMIYOR";
 }
 
-inline const char* drone_role_adi(DroneRole rol)
+inline const char* drone_role_name(DroneRole role)
 {
-    switch (rol)
+    switch (role)
     {
         case DroneRole::SCOUT:   return "SCOUT";
         case DroneRole::STRIKER: return "STRIKER";
@@ -35,9 +35,9 @@ inline const char* drone_role_adi(DroneRole rol)
     return "BILINMIYOR";
 }
 
-inline const char* task_type_adi(TaskType tip)
+inline const char* task_type_name(TaskType type)
 {
-    switch (tip)
+    switch (type)
     {
         case TaskType::INIT:          return "INIT";
         case TaskType::DISCOVERY:     return "DISCOVERY";
@@ -52,9 +52,9 @@ inline const char* task_type_adi(TaskType tip)
     return "BILINMIYOR";
 }
 
-inline const char* vote_adi(Vote oy)
+inline const char* vote_name(Vote vote)
 {
-    switch (oy)
+    switch (vote)
     {
         case Vote::PENDING: return "PENDING";
         case Vote::NACK:    return "NACK";

@@ -24,15 +24,15 @@
 
 namespace swarm {
 
-struct ConfigSonucu
+struct ConfigResult
 {
-    bool basarili = false;
-    std::string hata;          // basarili == false iken doludur
+    bool success = false;
+    std::string error;          // basarili == false iken doludur
     SwarmConfig config{};
-    uint8_t baslangic_bataryasi = 100;
+    uint8_t starting_battery = 100;
 };
 
 // Ortam değişkenlerini okuyup doğrular.
-ConfigSonucu config_ortamdan_oku();
+ConfigResult read_config_from_env();
 
 }  // namespace swarm

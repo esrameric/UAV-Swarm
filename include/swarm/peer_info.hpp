@@ -32,7 +32,7 @@ struct PeerInfo
     // Düğümün kimliği. GCS = 0, drone'lar 1..3 (Bölüm 4).
     // `= 0` yazımı "default member initializer"dır: bu alan, kurucu metotta
     // ayrıca belirtilmezse otomatik olarak bu değeri alır. Böylece
-    // "ilklenmemiş çöp değer" okuma hatası baştan imkânsız hâle gelir.
+    // "uninitialized" bir değer okuma hatası baştan imkânsız hâle gelir.
     uint8_t drone_id = 0;
 
     // Bu düğüm bir drone mu, GCS mi?

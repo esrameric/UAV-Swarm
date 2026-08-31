@@ -15,7 +15,7 @@ import sys
 
 GROUP = "239.255.0.1"  # Fast DDS'in varsayılan SPDP discovery multicast adresi
 PORT = 7400            # Fast DDS'in varsayılan discovery portu
-TIMEOUT_SANIYE = 25
+TIMEOUT_SECONDS = 25
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
 sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -24,16 +24,16 @@ sock.bind(("", PORT))
 # Çekirdeğe "bu multicast grubunu dinlemek istiyorum" diyoruz (IGMP join).
 mreq = struct.pack("4sl", socket.inet_aton(GROUP), socket.INADDR_ANY)
 sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
-sock.settimeout(TIMEOUT_SANIYE)
+sock.settimeout(TIMEOUT_SECONDS)
 
-print(f"ALICI: {GROUP}:{PORT} dinleniyor ({TIMEOUT_SANIYE} sn)...", flush=True)
+print(f"ALICI: {GROUP}:{PORT} dinleniyor ({TIMEOUT_SECONDS} sn)...", flush=True)
 
 try:
-    veri, gonderen = sock.recvfrom(1024)
+    data, sender = sock.recvfrom(1024)
 except socket.timeout:
     print("SONUC: BASARISIZ - multicast paketi alinamadi", flush=True)
     sys.exit(1)
 
-print(f"ALINDI: {veri.decode()} <- {gonderen[0]}", flush=True)
+print(f"ALINDI: {data.decode()} <- {sender[0]}", flush=True)
 print("SONUC: BASARILI", flush=True)
 sys.exit(0)

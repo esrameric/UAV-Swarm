@@ -12,22 +12,22 @@
 set -uo pipefail
 
 DOCKER="${DOCKER:-docker}"
-DEPO_KOKU="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-COMPOSE_DOSYASI="$DEPO_KOKU/docker/docker-compose.yml"
-PROJE="swarmup"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+COMPOSE_FILE="$REPO_ROOT/docker/docker-compose.yml"
+PROJECT="swarmup"
 
-SERVISLER=(gcs_node drone_scout drone_striker_1 drone_striker_2)
+SERVICES=(gcs_node drone_scout drone_striker_1 drone_striker_2)
 
-hata_sayisi=0
-gecti() { echo "  [OK]   $1"; }
-kaldi() { echo "  [HATA] $1"; hata_sayisi=$((hata_sayisi + 1)); }
+error_count=0
+ok() { echo "  [OK]   $1"; }
+fail() { echo "  [HATA] $1"; error_count=$((error_count + 1)); }
 
-compose() { $DOCKER compose -p "$PROJE" -f "$COMPOSE_DOSYASI" "$@"; }
+compose() { $DOCKER compose -p "$PROJECT" -f "$COMPOSE_FILE" "$@"; }
 
-temizle() {
+cleanup() {
     compose down -v --remove-orphans >/dev/null 2>&1
 }
-trap temizle EXIT
+trap cleanup EXIT
 
 echo "== Faz 5.3: 4 container ayaga kalkiyor mu =="
 
@@ -38,9 +38,9 @@ if ! $DOCKER image inspect swarm_node:latest >/dev/null 2>&1; then
     echo "SONUC: BASARISIZ"
     exit 1
 fi
-gecti "swarm_node:latest imaji mevcut"
+ok "swarm_node:latest imaji mevcut"
 
-temizle
+cleanup
 echo "-- container'lar baslatiliyor"
 if ! compose up -d --no-build >/dev/null 2>&1; then
     echo "  [HATA] docker compose up basarisiz"
@@ -54,37 +54,37 @@ sleep 15
 
 echo
 echo "-- durum kontrolu"
-for servis in "${SERVISLER[@]}"; do
-    kimlik="$(compose ps -q "$servis" 2>/dev/null)"
+for service in "${SERVICES[@]}"; do
+    id="$(compose ps -q "$service" 2>/dev/null)"
 
-    if [ -z "$kimlik" ]; then
-        kaldi "$servis: container olusturulmamis"
+    if [ -z "$id" ]; then
+        fail "$service: container olusturulmamis"
         continue
     fi
 
-    durum="$($DOCKER inspect -f '{{.State.Status}}' "$kimlik" 2>/dev/null)"
-    ip="$($DOCKER inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$kimlik" 2>/dev/null)"
+    state="$($DOCKER inspect -f '{{.State.Status}}' "$id" 2>/dev/null)"
+    ip="$($DOCKER inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$id" 2>/dev/null)"
 
-    if [ "$durum" != "running" ]; then
-        cikis_kodu="$($DOCKER inspect -f '{{.State.ExitCode}}' "$kimlik" 2>/dev/null)"
-        kaldi "$servis: ayakta degil (durum=$durum, cikis kodu=$cikis_kodu)"
+    if [ "$state" != "running" ]; then
+        exit_code="$($DOCKER inspect -f '{{.State.ExitCode}}' "$id" 2>/dev/null)"
+        fail "$service: ayakta degil (durum=$state, cikis kodu=$exit_code)"
         echo "         son loglar:"
-        compose logs --no-color --tail 10 "$servis" 2>/dev/null | sed 's/^/           /'
+        compose logs --no-color --tail 10 "$service" 2>/dev/null | sed 's/^/           /'
         continue
     fi
 
     # "hazir" satırı, 3 thread'in başladığını ve DDS'in kurulduğunu gösterir.
-    if compose logs --no-color "$servis" 2>/dev/null | grep -q "\[node\] hazir"; then
-        gecti "$servis: ayakta ve hazir  (ip=$ip)"
+    if compose logs --no-color "$service" 2>/dev/null | grep -q "\[node\] hazir"; then
+        ok "$service: ayakta ve hazir  (ip=$ip)"
     else
-        kaldi "$servis: ayakta ama '[node] hazir' satiri yok  (ip=$ip)"
+        fail "$service: ayakta ama '[node] hazir' satiri yok  (ip=$ip)"
     fi
 done
 
 echo
-if [ "$hata_sayisi" -eq 0 ]; then
+if [ "$error_count" -eq 0 ]; then
     echo "SONUC: BASARILI - 4 container ayakta"
     exit 0
 fi
-echo "SONUC: BASARISIZ - $hata_sayisi container sorunlu"
+echo "SONUC: BASARISIZ - $error_count container sorunlu"
 exit 1

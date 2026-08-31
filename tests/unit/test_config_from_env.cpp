@@ -16,7 +16,7 @@
 namespace {
 
 // Test öncesi ortamı temiz bir başlangıca çeker.
-void ortami_temizle()
+void clear_environment()
 {
     // unsetenv: ortam değişkenini tamamen kaldırır (boş bırakmaz).
     ::unsetenv("NODE_TYPE");
@@ -26,200 +26,200 @@ void ortami_temizle()
     ::unsetenv("INITIAL_BATTERY");
 }
 
-void ayarla(const char* isim, const char* deger)
+void set_env(const char* name, const char* value)
 {
     // setenv'in üçüncü parametresi "var olanı ez" anlamına gelir.
-    ::setenv(isim, deger, 1);
+    ::setenv(name, value, 1);
 }
 
 }  // namespace
 
 TEST(ConfigFromEnv, HicDegiskenYokkenVarsayilanlarKullanilir)
 {
-    ortami_temizle();
+    clear_environment();
 
-    const swarm::ConfigSonucu sonuc = swarm::config_ortamdan_oku();
+    const swarm::ConfigResult result = swarm::read_config_from_env();
 
-    ASSERT_TRUE(sonuc.basarili) << sonuc.hata;
-    EXPECT_EQ(sonuc.config.node_type, swarm::NodeType::DRONE);
-    EXPECT_EQ(sonuc.config.drone_id, 0u);
-    EXPECT_EQ(sonuc.config.role, swarm::DroneRole::SCOUT);
-    EXPECT_EQ(sonuc.config.domain_id, 42u);
-    EXPECT_EQ(sonuc.baslangic_bataryasi, 100u);
+    ASSERT_TRUE(result.success) << result.error;
+    EXPECT_EQ(result.config.node_type, swarm::NodeType::DRONE);
+    EXPECT_EQ(result.config.drone_id, 0u);
+    EXPECT_EQ(result.config.role, swarm::DroneRole::SCOUT);
+    EXPECT_EQ(result.config.domain_id, 42u);
+    EXPECT_EQ(result.starting_battery, 100u);
 }
 
 TEST(ConfigFromEnv, GcsKimligiOkunur)
 {
-    ortami_temizle();
-    ayarla("NODE_TYPE", "GCS");
-    ayarla("DRONE_ID", "0");
-    ayarla("ROS_DOMAIN_ID", "42");
+    clear_environment();
+    set_env("NODE_TYPE", "GCS");
+    set_env("DRONE_ID", "0");
+    set_env("ROS_DOMAIN_ID", "42");
 
-    const swarm::ConfigSonucu sonuc = swarm::config_ortamdan_oku();
+    const swarm::ConfigResult result = swarm::read_config_from_env();
 
-    ASSERT_TRUE(sonuc.basarili) << sonuc.hata;
-    EXPECT_EQ(sonuc.config.node_type, swarm::NodeType::GCS);
-    EXPECT_EQ(sonuc.config.drone_id, 0u);
+    ASSERT_TRUE(result.success) << result.error;
+    EXPECT_EQ(result.config.node_type, swarm::NodeType::GCS);
+    EXPECT_EQ(result.config.drone_id, 0u);
 }
 
 TEST(ConfigFromEnv, ScoutDroneKimligiOkunur)
 {
     // docker-compose.yml'deki drone_scout servisinin ayarları (Bölüm 4).
-    ortami_temizle();
-    ayarla("NODE_TYPE", "DRONE");
-    ayarla("ROLE", "SCOUT");
-    ayarla("DRONE_ID", "1");
-    ayarla("ROS_DOMAIN_ID", "42");
+    clear_environment();
+    set_env("NODE_TYPE", "DRONE");
+    set_env("ROLE", "SCOUT");
+    set_env("DRONE_ID", "1");
+    set_env("ROS_DOMAIN_ID", "42");
 
-    const swarm::ConfigSonucu sonuc = swarm::config_ortamdan_oku();
+    const swarm::ConfigResult result = swarm::read_config_from_env();
 
-    ASSERT_TRUE(sonuc.basarili) << sonuc.hata;
-    EXPECT_EQ(sonuc.config.node_type, swarm::NodeType::DRONE);
-    EXPECT_EQ(sonuc.config.role, swarm::DroneRole::SCOUT);
-    EXPECT_EQ(sonuc.config.drone_id, 1u);
-    EXPECT_EQ(sonuc.config.domain_id, 42u);
+    ASSERT_TRUE(result.success) << result.error;
+    EXPECT_EQ(result.config.node_type, swarm::NodeType::DRONE);
+    EXPECT_EQ(result.config.role, swarm::DroneRole::SCOUT);
+    EXPECT_EQ(result.config.drone_id, 1u);
+    EXPECT_EQ(result.config.domain_id, 42u);
 }
 
 TEST(ConfigFromEnv, StrikerDroneKimligiOkunur)
 {
-    ortami_temizle();
-    ayarla("NODE_TYPE", "DRONE");
-    ayarla("ROLE", "STRIKER");
-    ayarla("DRONE_ID", "3");
+    clear_environment();
+    set_env("NODE_TYPE", "DRONE");
+    set_env("ROLE", "STRIKER");
+    set_env("DRONE_ID", "3");
 
-    const swarm::ConfigSonucu sonuc = swarm::config_ortamdan_oku();
+    const swarm::ConfigResult result = swarm::read_config_from_env();
 
-    ASSERT_TRUE(sonuc.basarili) << sonuc.hata;
-    EXPECT_EQ(sonuc.config.role, swarm::DroneRole::STRIKER);
-    EXPECT_EQ(sonuc.config.drone_id, 3u);
+    ASSERT_TRUE(result.success) << result.error;
+    EXPECT_EQ(result.config.role, swarm::DroneRole::STRIKER);
+    EXPECT_EQ(result.config.drone_id, 3u);
 }
 
 TEST(ConfigFromEnv, GcsIcinRoleOkunmaz)
 {
     // ROLE yalnızca node_type == DRONE iken anlamlıdır (Bölüm 3.5).
     // GCS'te geçersiz bir ROLE bile hata vermemeli, çünkü okunmuyor.
-    ortami_temizle();
-    ayarla("NODE_TYPE", "GCS");
-    ayarla("ROLE", "SACMA_BIR_DEGER");
+    clear_environment();
+    set_env("NODE_TYPE", "GCS");
+    set_env("ROLE", "SACMA_BIR_DEGER");
 
-    const swarm::ConfigSonucu sonuc = swarm::config_ortamdan_oku();
+    const swarm::ConfigResult result = swarm::read_config_from_env();
 
-    EXPECT_TRUE(sonuc.basarili) << sonuc.hata;
+    EXPECT_TRUE(result.success) << result.error;
 }
 
 TEST(ConfigFromEnv, GecersizNodeTypeHataVerir)
 {
     // Sessizce varsayılana düşmek yanlış yapılandırmayı saatlerce
     // gizleyebilir; erken ve gürültülü hata veriyoruz.
-    ortami_temizle();
-    ayarla("NODE_TYPE", "SUNUCU");
+    clear_environment();
+    set_env("NODE_TYPE", "SUNUCU");
 
-    const swarm::ConfigSonucu sonuc = swarm::config_ortamdan_oku();
+    const swarm::ConfigResult result = swarm::read_config_from_env();
 
-    EXPECT_FALSE(sonuc.basarili);
-    EXPECT_NE(sonuc.hata.find("NODE_TYPE"), std::string::npos);
+    EXPECT_FALSE(result.success);
+    EXPECT_NE(result.error.find("NODE_TYPE"), std::string::npos);
 }
 
 TEST(ConfigFromEnv, GecersizRoleHataVerir)
 {
-    ortami_temizle();
-    ayarla("NODE_TYPE", "DRONE");
-    ayarla("ROLE", "KAMIKAZE");
+    clear_environment();
+    set_env("NODE_TYPE", "DRONE");
+    set_env("ROLE", "KAMIKAZE");
 
-    const swarm::ConfigSonucu sonuc = swarm::config_ortamdan_oku();
+    const swarm::ConfigResult result = swarm::read_config_from_env();
 
-    EXPECT_FALSE(sonuc.basarili);
-    EXPECT_NE(sonuc.hata.find("ROLE"), std::string::npos);
+    EXPECT_FALSE(result.success);
+    EXPECT_NE(result.error.find("ROLE"), std::string::npos);
 }
 
 TEST(ConfigFromEnv, SayiOlmayanDroneIdHataVerir)
 {
-    ortami_temizle();
-    ayarla("DRONE_ID", "bir");
+    clear_environment();
+    set_env("DRONE_ID", "bir");
 
-    const swarm::ConfigSonucu sonuc = swarm::config_ortamdan_oku();
+    const swarm::ConfigResult result = swarm::read_config_from_env();
 
-    EXPECT_FALSE(sonuc.basarili);
-    EXPECT_NE(sonuc.hata.find("DRONE_ID"), std::string::npos);
+    EXPECT_FALSE(result.success);
+    EXPECT_NE(result.error.find("DRONE_ID"), std::string::npos);
 }
 
 TEST(ConfigFromEnv, AraligiAsanDroneIdHataVerir)
 {
     // drone_id uint8_t'dir; 300 sessizce 44'e dönüşmemeli.
-    ortami_temizle();
-    ayarla("DRONE_ID", "300");
+    clear_environment();
+    set_env("DRONE_ID", "300");
 
-    const swarm::ConfigSonucu sonuc = swarm::config_ortamdan_oku();
+    const swarm::ConfigResult result = swarm::read_config_from_env();
 
-    EXPECT_FALSE(sonuc.basarili);
-    EXPECT_NE(sonuc.hata.find("DRONE_ID"), std::string::npos);
+    EXPECT_FALSE(result.success);
+    EXPECT_NE(result.error.find("DRONE_ID"), std::string::npos);
 }
 
 TEST(ConfigFromEnv, AraligiAsanBataryaHataVerir)
 {
-    ortami_temizle();
-    ayarla("INITIAL_BATTERY", "150");
+    clear_environment();
+    set_env("INITIAL_BATTERY", "150");
 
-    const swarm::ConfigSonucu sonuc = swarm::config_ortamdan_oku();
+    const swarm::ConfigResult result = swarm::read_config_from_env();
 
-    EXPECT_FALSE(sonuc.basarili);
-    EXPECT_NE(sonuc.hata.find("INITIAL_BATTERY"), std::string::npos);
+    EXPECT_FALSE(result.success);
+    EXPECT_NE(result.error.find("INITIAL_BATTERY"), std::string::npos);
 }
 
 TEST(ConfigFromEnv, DusukBataryaAyarlanabilir)
 {
     // Faz 6.3'teki NACK senaryosu bu değişkenle kuruluyor: bataryası
     // kritik olan drone consensus'ta NACK verir.
-    ortami_temizle();
-    ayarla("INITIAL_BATTERY", "5");
+    clear_environment();
+    set_env("INITIAL_BATTERY", "5");
 
-    const swarm::ConfigSonucu sonuc = swarm::config_ortamdan_oku();
+    const swarm::ConfigResult result = swarm::read_config_from_env();
 
-    ASSERT_TRUE(sonuc.basarili) << sonuc.hata;
-    EXPECT_EQ(sonuc.baslangic_bataryasi, 5u);
+    ASSERT_TRUE(result.success) << result.error;
+    EXPECT_EQ(result.starting_battery, 5u);
 }
 
 TEST(ConfigFromEnv, BosDegiskenVarsayilanSayilir)
 {
     // docker-compose bazen değişkeni boş string olarak geçirebilir.
-    ortami_temizle();
-    ayarla("ROS_DOMAIN_ID", "");
+    clear_environment();
+    set_env("ROS_DOMAIN_ID", "");
 
-    const swarm::ConfigSonucu sonuc = swarm::config_ortamdan_oku();
+    const swarm::ConfigResult result = swarm::read_config_from_env();
 
-    ASSERT_TRUE(sonuc.basarili) << sonuc.hata;
-    EXPECT_EQ(sonuc.config.domain_id, 42u);
+    ASSERT_TRUE(result.success) << result.error;
+    EXPECT_EQ(result.config.domain_id, 42u);
 }
 
 TEST(ConfigFromEnv, AriziEnjeksiyonuVarsayilanKapali)
 {
-    ortami_temizle();
+    clear_environment();
 
-    const swarm::ConfigSonucu sonuc = swarm::config_ortamdan_oku();
+    const swarm::ConfigResult result = swarm::read_config_from_env();
 
-    ASSERT_TRUE(sonuc.basarili) << sonuc.hata;
-    EXPECT_FALSE(sonuc.config.fault_silent_consensus);
+    ASSERT_TRUE(result.success) << result.error;
+    EXPECT_FALSE(result.config.fault_silent_consensus);
 }
 
 TEST(ConfigFromEnv, AriziEnjeksiyonuAcilabilir)
 {
     // Faz 6.3: "ayakta ama sessiz" drone senaryosu bu değişkenle kuruluyor.
-    ortami_temizle();
-    ayarla("FAULT_SILENT_CONSENSUS", "1");
+    clear_environment();
+    set_env("FAULT_SILENT_CONSENSUS", "1");
 
-    const swarm::ConfigSonucu sonuc = swarm::config_ortamdan_oku();
+    const swarm::ConfigResult result = swarm::read_config_from_env();
 
-    ASSERT_TRUE(sonuc.basarili) << sonuc.hata;
-    EXPECT_TRUE(sonuc.config.fault_silent_consensus);
+    ASSERT_TRUE(result.success) << result.error;
+    EXPECT_TRUE(result.config.fault_silent_consensus);
 }
 
 TEST(ConfigFromEnv, GecersizAriziEnjeksiyonuDegeriHataVerir)
 {
-    ortami_temizle();
-    ayarla("FAULT_SILENT_CONSENSUS", "7");
+    clear_environment();
+    set_env("FAULT_SILENT_CONSENSUS", "7");
 
-    const swarm::ConfigSonucu sonuc = swarm::config_ortamdan_oku();
+    const swarm::ConfigResult result = swarm::read_config_from_env();
 
-    EXPECT_FALSE(sonuc.basarili);
-    EXPECT_NE(sonuc.hata.find("FAULT_SILENT_CONSENSUS"), std::string::npos);
+    EXPECT_FALSE(result.success);
+    EXPECT_NE(result.error.find("FAULT_SILENT_CONSENSUS"), std::string::npos);
 }

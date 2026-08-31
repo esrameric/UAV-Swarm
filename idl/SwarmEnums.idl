@@ -43,7 +43,7 @@ enum TaskType
     INIT,           // = 0  Başlangıç kurulumu
     DISCOVERY,      // = 1  Sürüdeki diğer düğümleri keşfetme
     CONSENSUS,      // = 2  2-Phase Commit oylaması
-    IDLE,           // = 3  Boşta bekleme (kuyruk boş)
+    IDLE,           // = 3  Boşta bekleme (queue boş)
     SCOUT_SEARCH,   // = 4  Alan taraması        (yalnız Gözcü)
     GO_TO_TARGET,   // = 5  Hedefe gidiş         (yalnız Müdahale)
     HOVER,          // = 6  Havada sabit durma

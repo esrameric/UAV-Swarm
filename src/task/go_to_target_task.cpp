@@ -4,28 +4,28 @@
 
 namespace swarm {
 
-GoToTargetTask::GoToTargetTask(DroneState& durum, double hedef_x, double hedef_y)
-    : durum_(durum)
-    , hedef_x_(hedef_x)
-    , hedef_y_(hedef_y)
+GoToTargetTask::GoToTargetTask(DroneState& state, double target_x, double target_y)
+    : state_(state)
+    , target_x_(target_x)
+    , target_y_(target_y)
 {
 }
 
 void GoToTargetTask::on_enter(TimePoint now)
 {
-    son_calisma_ = now;
-    tamamlandi_ = false;
+    last_update_ = now;
+    finished_ = false;
 }
 
 void GoToTargetTask::run(TimePoint now)
 {
-    const double gecen_saniye =
-            std::chrono::duration<double>(now - son_calisma_).count();
-    son_calisma_ = now;
+    const double elapsed_seconds =
+            std::chrono::duration<double>(now - last_update_).count();
+    last_update_ = now;
 
-    tamamlandi_ = hedefe_dogru_ilerlet(
-            durum_, hedef_x_, hedef_y_,
-            YATAY_HIZ_M_S, VARIS_TOLERANSI_M, gecen_saniye);
+    finished_ = move_toward_target(
+            state_, target_x_, target_y_,
+            HORIZONTAL_SPEED_M_S, ARRIVAL_TOLERANCE_M, elapsed_seconds);
 }
 
 void GoToTargetTask::on_exit()
@@ -34,7 +34,7 @@ void GoToTargetTask::on_exit()
 
 bool GoToTargetTask::is_finished() const
 {
-    return tamamlandi_;
+    return finished_;
 }
 
 TaskType GoToTargetTask::get_type() const

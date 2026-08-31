@@ -42,8 +42,8 @@ TEST(BuildEnvironment, StandartKutuphaneKullanilabilir)
     // std::string, C++ standart kütüphanesinin metin tipidir. C'deki
     // char dizilerinin aksine kendi belleğini kendi yönetir (RAII):
     // kapsam (scope) bittiğinde belleği otomatik serbest bırakır.
-    const std::string node_adi = "swarm_uav";
+    const std::string node_name = "swarm_uav";
 
-    EXPECT_EQ(node_adi.size(), 9u);
-    EXPECT_EQ(node_adi, "swarm_uav");
+    EXPECT_EQ(node_name.size(), 9u);
+    EXPECT_EQ(node_name, "swarm_uav");
 }

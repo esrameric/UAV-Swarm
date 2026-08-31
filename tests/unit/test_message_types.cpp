@@ -74,51 +74,51 @@ TEST(SwarmEnums, VotePendingSifirOlmali)
 
 TEST(Heartbeat, AlanlarYazilipOkunabiliyor)
 {
-    swarm::Heartbeat kalp_atisi;
+    swarm::Heartbeat heartbeat;
 
-    kalp_atisi.drone_id(3);
-    kalp_atisi.node_type(swarm::NodeType::DRONE);
-    kalp_atisi.role(swarm::DroneRole::STRIKER);
-    kalp_atisi.current_task(swarm::TaskType::GO_TO_TARGET);
+    heartbeat.drone_id(3);
+    heartbeat.node_type(swarm::NodeType::DRONE);
+    heartbeat.role(swarm::DroneRole::STRIKER);
+    heartbeat.current_task(swarm::TaskType::GO_TO_TARGET);
 
-    EXPECT_EQ(kalp_atisi.drone_id(), 3u);
-    EXPECT_EQ(kalp_atisi.node_type(), swarm::NodeType::DRONE);
-    EXPECT_EQ(kalp_atisi.role(), swarm::DroneRole::STRIKER);
-    EXPECT_EQ(kalp_atisi.current_task(), swarm::TaskType::GO_TO_TARGET);
+    EXPECT_EQ(heartbeat.drone_id(), 3u);
+    EXPECT_EQ(heartbeat.node_type(), swarm::NodeType::DRONE);
+    EXPECT_EQ(heartbeat.role(), swarm::DroneRole::STRIKER);
+    EXPECT_EQ(heartbeat.current_task(), swarm::TaskType::GO_TO_TARGET);
 }
 
 TEST(Heartbeat, VarsayilanDegerler)
 {
-    const swarm::Heartbeat kalp_atisi;
+    const swarm::Heartbeat heartbeat;
 
-    EXPECT_EQ(kalp_atisi.drone_id(), 0u);
-    EXPECT_EQ(kalp_atisi.node_type(), swarm::NodeType::DRONE);
-    EXPECT_EQ(kalp_atisi.current_task(), swarm::TaskType::INIT);
+    EXPECT_EQ(heartbeat.drone_id(), 0u);
+    EXPECT_EQ(heartbeat.node_type(), swarm::NodeType::DRONE);
+    EXPECT_EQ(heartbeat.current_task(), swarm::TaskType::INIT);
 }
 
 TEST(Telemetry, KonumHizVeBataryaAlanlari)
 {
-    swarm::Telemetry telemetri;
+    swarm::Telemetry telemetry;
 
-    telemetri.drone_id(1);
-    telemetri.seq_num(42);
-    telemetri.x(10.5);   // Doğu  (metre, ENU)
-    telemetri.y(-3.25);  // Kuzey
-    telemetri.z(50.0);   // Yukarı
-    telemetri.vx(1.5);
-    telemetri.vy(0.0);
-    telemetri.vz(-0.25);
-    telemetri.battery(87);
-    telemetri.timestamp(1735689600000ULL);
+    telemetry.drone_id(1);
+    telemetry.seq_num(42);
+    telemetry.x(10.5);   // Doğu  (metre, ENU)
+    telemetry.y(-3.25);  // Kuzey
+    telemetry.z(50.0);   // Yukarı
+    telemetry.vx(1.5);
+    telemetry.vy(0.0);
+    telemetry.vz(-0.25);
+    telemetry.battery(87);
+    telemetry.timestamp(1735689600000ULL);
 
-    EXPECT_EQ(telemetri.drone_id(), 1u);
-    EXPECT_EQ(telemetri.seq_num(), 42u);
-    EXPECT_DOUBLE_EQ(telemetri.x(), 10.5);
-    EXPECT_DOUBLE_EQ(telemetri.y(), -3.25);
-    EXPECT_DOUBLE_EQ(telemetri.z(), 50.0);
-    EXPECT_DOUBLE_EQ(telemetri.vz(), -0.25);
-    EXPECT_EQ(telemetri.battery(), 87u);
-    EXPECT_EQ(telemetri.timestamp(), 1735689600000ULL);
+    EXPECT_EQ(telemetry.drone_id(), 1u);
+    EXPECT_EQ(telemetry.seq_num(), 42u);
+    EXPECT_DOUBLE_EQ(telemetry.x(), 10.5);
+    EXPECT_DOUBLE_EQ(telemetry.y(), -3.25);
+    EXPECT_DOUBLE_EQ(telemetry.z(), 50.0);
+    EXPECT_DOUBLE_EQ(telemetry.vz(), -0.25);
+    EXPECT_EQ(telemetry.battery(), 87u);
+    EXPECT_EQ(telemetry.timestamp(), 1735689600000ULL);
 }
 
 TEST(Telemetry, SeqNumUint32Genisliginde)
@@ -126,40 +126,40 @@ TEST(Telemetry, SeqNumUint32Genisliginde)
     // Bölüm 3.5: seq_num hiç sıfırlanmayan bir uint32_t sayaç. 50 Hz'de
     // taşması için ~2,7 yıl gerekir; bu payın gerçekten var olduğunu
     // en büyük değeri saklayarak doğruluyoruz.
-    swarm::Telemetry telemetri;
-    telemetri.seq_num(UINT32_MAX);
+    swarm::Telemetry telemetry;
+    telemetry.seq_num(UINT32_MAX);
 
-    EXPECT_EQ(telemetri.seq_num(), 4294967295u);
+    EXPECT_EQ(telemetry.seq_num(), 4294967295u);
 }
 
 TEST(TaskAllocation, GorevEmriAlanlari)
 {
-    swarm::TaskAllocation emir;
+    swarm::TaskAllocation order;
 
-    emir.task_id(7);
-    emir.target_role(swarm::DroneRole::SCOUT);
-    emir.target_x(120.0);
-    emir.target_y(-45.5);
+    order.task_id(7);
+    order.target_role(swarm::DroneRole::SCOUT);
+    order.target_x(120.0);
+    order.target_y(-45.5);
 
-    EXPECT_EQ(emir.task_id(), 7u);
-    EXPECT_EQ(emir.target_role(), swarm::DroneRole::SCOUT);
-    EXPECT_DOUBLE_EQ(emir.target_x(), 120.0);
-    EXPECT_DOUBLE_EQ(emir.target_y(), -45.5);
+    EXPECT_EQ(order.task_id(), 7u);
+    EXPECT_EQ(order.target_role(), swarm::DroneRole::SCOUT);
+    EXPECT_DOUBLE_EQ(order.target_x(), 120.0);
+    EXPECT_DOUBLE_EQ(order.target_y(), -45.5);
 }
 
 TEST(Consensus, OyMesajiAlanlari)
 {
-    swarm::Consensus oy;
+    swarm::Consensus vote;
 
-    oy.transaction_id(99);
-    oy.sender_id(2);
-    oy.vote(swarm::Vote::ACK);
-    oy.seq_num(5);
+    vote.transaction_id(99);
+    vote.sender_id(2);
+    vote.vote(swarm::Vote::ACK);
+    vote.seq_num(5);
 
-    EXPECT_EQ(oy.transaction_id(), 99u);
-    EXPECT_EQ(oy.sender_id(), 2u);
-    EXPECT_EQ(oy.vote(), swarm::Vote::ACK);
-    EXPECT_EQ(oy.seq_num(), 5u);
+    EXPECT_EQ(vote.transaction_id(), 99u);
+    EXPECT_EQ(vote.sender_id(), 2u);
+    EXPECT_EQ(vote.vote(), swarm::Vote::ACK);
+    EXPECT_EQ(vote.seq_num(), 5u);
 }
 
 TEST(Consensus, VarsayilanOyPendingOlmali)
@@ -167,9 +167,9 @@ TEST(Consensus, VarsayilanOyPendingOlmali)
     // Default-initialize edilen bir Consensus mesajının oyu PENDING olmalı.
     // Bu, "cevap gelmedi" durumunun kazara ACK sayılmasını engelleyen
     // güvenlik ağıdır.
-    const swarm::Consensus oy;
+    const swarm::Consensus vote;
 
-    EXPECT_EQ(oy.vote(), swarm::Vote::PENDING);
+    EXPECT_EQ(vote.vote(), swarm::Vote::PENDING);
 }
 
 // ---------------------------------------------------------------------------
@@ -182,59 +182,59 @@ TEST(MesajSerilestirme, HeartbeatGidisDonusAyniKalir)
     // mesajı bayta çevirip (serialize) ağa koyarken ve karşı tarafta geri
     // okurken (deserialize) kullandığı sınıf budur. Burada ağa hiç çıkmadan,
     // aynı işlemi yerelde yapıp verinin bozulmadığını doğruluyoruz.
-    swarm::HeartbeatPubSubType tip_destegi;
+    swarm::HeartbeatPubSubType type_support;
 
-    swarm::Heartbeat gonderilen;
-    gonderilen.drone_id(2);
-    gonderilen.node_type(swarm::NodeType::GCS);
-    gonderilen.role(swarm::DroneRole::STRIKER);
-    gonderilen.current_task(swarm::TaskType::CONSENSUS);
+    swarm::Heartbeat sent;
+    sent.drone_id(2);
+    sent.node_type(swarm::NodeType::GCS);
+    sent.role(swarm::DroneRole::STRIKER);
+    sent.current_task(swarm::TaskType::CONSENSUS);
 
-    const auto gosterim = eprosima::fastdds::dds::DEFAULT_DATA_REPRESENTATION;
+    const auto representation = eprosima::fastdds::dds::DEFAULT_DATA_REPRESENTATION;
 
     // Önce kaç bayt gerektiğini soruyoruz, sonra o kadar yer ayırıyoruz.
-    const uint32_t boyut = tip_destegi.calculate_serialized_size(&gonderilen, gosterim);
-    eprosima::fastdds::rtps::SerializedPayload_t yuk(boyut);
+    const uint32_t size = type_support.calculate_serialized_size(&sent, representation);
+    eprosima::fastdds::rtps::SerializedPayload_t payload(size);
 
-    ASSERT_TRUE(tip_destegi.serialize(&gonderilen, yuk, gosterim));
+    ASSERT_TRUE(type_support.serialize(&sent, payload, representation));
 
-    swarm::Heartbeat alinan;
-    ASSERT_TRUE(tip_destegi.deserialize(yuk, &alinan));
+    swarm::Heartbeat received;
+    ASSERT_TRUE(type_support.deserialize(payload, &received));
 
-    EXPECT_EQ(alinan.drone_id(), gonderilen.drone_id());
-    EXPECT_EQ(alinan.node_type(), gonderilen.node_type());
-    EXPECT_EQ(alinan.role(), gonderilen.role());
-    EXPECT_EQ(alinan.current_task(), gonderilen.current_task());
+    EXPECT_EQ(received.drone_id(), sent.drone_id());
+    EXPECT_EQ(received.node_type(), sent.node_type());
+    EXPECT_EQ(received.role(), sent.role());
+    EXPECT_EQ(received.current_task(), sent.current_task());
 }
 
 TEST(MesajSerilestirme, TelemetriGidisDonusAyniKalir)
 {
-    swarm::TelemetryPubSubType tip_destegi;
+    swarm::TelemetryPubSubType type_support;
 
-    swarm::Telemetry gonderilen;
-    gonderilen.drone_id(1);
-    gonderilen.seq_num(123456);
-    gonderilen.x(1.25);
-    gonderilen.y(2.5);
-    gonderilen.z(3.75);
-    gonderilen.vx(-1.0);
-    gonderilen.vy(0.5);
-    gonderilen.vz(0.125);
-    gonderilen.battery(64);
-    gonderilen.timestamp(1735689600123ULL);
+    swarm::Telemetry sent;
+    sent.drone_id(1);
+    sent.seq_num(123456);
+    sent.x(1.25);
+    sent.y(2.5);
+    sent.z(3.75);
+    sent.vx(-1.0);
+    sent.vy(0.5);
+    sent.vz(0.125);
+    sent.battery(64);
+    sent.timestamp(1735689600123ULL);
 
-    const auto gosterim = eprosima::fastdds::dds::DEFAULT_DATA_REPRESENTATION;
-    const uint32_t boyut = tip_destegi.calculate_serialized_size(&gonderilen, gosterim);
-    eprosima::fastdds::rtps::SerializedPayload_t yuk(boyut);
+    const auto representation = eprosima::fastdds::dds::DEFAULT_DATA_REPRESENTATION;
+    const uint32_t size = type_support.calculate_serialized_size(&sent, representation);
+    eprosima::fastdds::rtps::SerializedPayload_t payload(size);
 
-    ASSERT_TRUE(tip_destegi.serialize(&gonderilen, yuk, gosterim));
+    ASSERT_TRUE(type_support.serialize(&sent, payload, representation));
 
-    swarm::Telemetry alinan;
-    ASSERT_TRUE(tip_destegi.deserialize(yuk, &alinan));
+    swarm::Telemetry received;
+    ASSERT_TRUE(type_support.deserialize(payload, &received));
 
-    EXPECT_EQ(alinan.seq_num(), gonderilen.seq_num());
-    EXPECT_DOUBLE_EQ(alinan.x(), gonderilen.x());
-    EXPECT_DOUBLE_EQ(alinan.vz(), gonderilen.vz());
-    EXPECT_EQ(alinan.battery(), gonderilen.battery());
-    EXPECT_EQ(alinan.timestamp(), gonderilen.timestamp());
+    EXPECT_EQ(received.seq_num(), sent.seq_num());
+    EXPECT_DOUBLE_EQ(received.x(), sent.x());
+    EXPECT_DOUBLE_EQ(received.vz(), sent.vz());
+    EXPECT_EQ(received.battery(), sent.battery());
+    EXPECT_EQ(received.timestamp(), sent.timestamp());
 }

@@ -40,14 +40,14 @@ public:
     // SANAL YIKICI (virtual destructor) — burada olması hayati.
     // Task Engine, task'ları `Task*` (taban sınıf işaretçisi) üzerinden
     // tutup siler. Yıkıcı `virtual` olmasaydı, silme anında yalnızca
-    // Task'ın yıkıcısı çalışır, child'ın yıkıcısı ATLANIRDI — sessiz bellek
-    // sızıntısı. Kural: polimorfik olarak kullanılan her taban sınıfın
+    // Task'ın yıkıcısı çalışır, child'ın yıkıcısı ATLANIRDI — sessiz bir
+    // memory leak. Kural: polimorfik olarak kullanılan her taban sınıfın
     // yıkıcısı virtual olmalıdır.
     //
     // `= default`: "derleyici bunun varsayılan gövdesini kendi yazsın".
     virtual ~Task() = default;
 
-    // Task kuyruğun başına geçtiğinde BİR KEZ çağrılır.
+    // Task queue'nun başına geçtiğinde BİR KEZ çağrılır.
     // Hazırlık işleri (başlangıç zamanını kaydetme, hedefi hesaplama)
     // buraya yazılır.
     virtual void on_enter(TimePoint now) = 0;
@@ -57,7 +57,7 @@ public:
     // adımlarla ilerletir.
     virtual void run(TimePoint now) = 0;
 
-    // Task kuyruktan çıkarken BİR KEZ çağrılır. Temizlik işleri buraya.
+    // Task queue'dan çıkarken BİR KEZ çağrılır. Temizlik işleri buraya.
     virtual void on_exit() = 0;
 
     // "İşim bitti mi?" Task Engine bunu her turda sorar; true dönerse

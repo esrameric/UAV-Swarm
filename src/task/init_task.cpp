@@ -7,15 +7,15 @@ namespace swarm {
 // demenin standart yoludur.
 void InitTask::on_enter(TimePoint)
 {
-    tamamlandi_ = false;
+    finished_ = false;
 }
 
 void InitTask::run(TimePoint)
 {
     // Başlangıç işleri (FastDDS kurulumu, kimlik okuma) SwarmManager::init()
-    // içinde zaten yapılıyor; bu task yalnızca kuyruğun tanımlı bir
+    // içinde zaten yapılıyor; bu task yalnızca queue'nun tanımlı bir
     // başlangıcı olsun diye var ve ilk turda tamamlanır.
-    tamamlandi_ = true;
+    finished_ = true;
 }
 
 void InitTask::on_exit()
@@ -24,7 +24,7 @@ void InitTask::on_exit()
 
 bool InitTask::is_finished() const
 {
-    return tamamlandi_;
+    return finished_;
 }
 
 TaskType InitTask::get_type() const

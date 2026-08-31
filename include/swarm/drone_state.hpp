@@ -34,7 +34,7 @@ struct DroneState
     uint8_t battery = 100;
 
     // Tüm hız bileşenlerini sıfırlar — "olduğun yerde dur".
-    void hizi_sifirla()
+    void reset_velocity()
     {
         vx = 0.0;
         vy = 0.0;

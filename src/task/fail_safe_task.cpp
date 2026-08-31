@@ -3,32 +3,32 @@
 namespace swarm {
 
 FailSafeTask::FailSafeTask(
-        DroneState& durum,
-        std::chrono::milliseconds degerlendirme_suresi)
-    : durum_(durum)
-    , degerlendirme_suresi_(degerlendirme_suresi)
+        DroneState& state,
+        std::chrono::milliseconds assessment_duration)
+    : state_(state)
+    , assessment_duration_(assessment_duration)
 {
 }
 
 void FailSafeTask::on_enter(TimePoint now)
 {
-    baslangic_ = now;
-    tamamlandi_ = false;
+    start_ = now;
+    finished_ = false;
 
     // Acil durumda ilk yapılacak şey: hareketi kes.
-    durum_.hizi_sifirla();
+    state_.reset_velocity();
 }
 
 void FailSafeTask::run(TimePoint now)
 {
-    durum_.hizi_sifirla();
+    state_.reset_velocity();
 
-    const auto gecen = std::chrono::duration_cast<std::chrono::milliseconds>(
-            now - baslangic_);
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - start_);
 
-    if (gecen >= degerlendirme_suresi_)
+    if (elapsed >= assessment_duration_)
     {
-        tamamlandi_ = true;
+        finished_ = true;
     }
 }
 
@@ -38,7 +38,7 @@ void FailSafeTask::on_exit()
 
 bool FailSafeTask::is_finished() const
 {
-    return tamamlandi_;
+    return finished_;
 }
 
 TaskType FailSafeTask::get_type() const

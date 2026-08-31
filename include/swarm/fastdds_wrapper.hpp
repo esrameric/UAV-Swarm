@@ -62,27 +62,27 @@ public:
     bool init();
 
     // --- Yayın ---------------------------------------------------------------
-    bool publish(const Heartbeat& mesaj);
-    bool publish(const Telemetry& mesaj);
-    bool publish(const TaskAllocation& mesaj);
-    bool publish(const Consensus& mesaj);
+    bool publish(const Heartbeat& message);
+    bool publish(const Telemetry& message);
+    bool publish(const TaskAllocation& message);
+    bool publish(const Consensus& message);
 
     // --- Alım ----------------------------------------------------------------
     // Mesaj geldiğinde çağrılacak fonksiyonlar. DDS'in kendi thread'inden
     // çağrılırlar; bu yüzden içlerinde uzun iş yapılmamalı, veri hemen
-    // SwarmManager'ın kuyruğuna bırakılmalıdır.
-    void set_heartbeat_callback(std::function<void(const Heartbeat&)> geri_cagirma);
-    void set_telemetry_callback(std::function<void(const Telemetry&)> geri_cagirma);
-    void set_task_allocation_callback(std::function<void(const TaskAllocation&)> geri_cagirma);
-    void set_consensus_callback(std::function<void(const Consensus&)> geri_cagirma);
+    // SwarmManager'ın queue'suna bırakılmalıdır.
+    void set_heartbeat_callback(std::function<void(const Heartbeat&)> callback);
+    void set_telemetry_callback(std::function<void(const Telemetry&)> callback);
+    void set_task_allocation_callback(std::function<void(const TaskAllocation&)> callback);
+    void set_consensus_callback(std::function<void(const Consensus&)> callback);
 
 private:
     // PIMPL ("pointer to implementation"): Fast DDS başlıklarının tamamını
     // bu .hpp'ye dahil etmemek için gerçek üyeler bir .cpp içindeki gizli
     // sınıfta tutulur. Kazancı: bu başlığı #include eden dosyaların Fast
     // DDS'i tanımasına gerek kalmaz ve derleme süresi kısalır.
-    struct Icerik;
-    std::unique_ptr<Icerik> icerik_;
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
 
     uint32_t domain_id_;
 };

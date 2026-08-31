@@ -3,37 +3,37 @@
 namespace swarm {
 
 DiscoveryTask::DiscoveryTask(
-        const PeerManager& peer_yoneticisi,
-        std::chrono::milliseconds azami_bekleme)
-    : peer_yoneticisi_(peer_yoneticisi)
-    , azami_bekleme_(azami_bekleme)
+        const PeerManager& peer_manager,
+        std::chrono::milliseconds max_wait)
+    : peer_manager_(peer_manager)
+    , max_wait_(max_wait)
 {
 }
 
 void DiscoveryTask::on_enter(TimePoint now)
 {
-    baslangic_ = now;
-    peer_bulundu_ = false;
-    tamamlandi_ = false;
+    start_ = now;
+    peer_found_ = false;
+    finished_ = false;
 }
 
 void DiscoveryTask::run(TimePoint now)
 {
-    if (peer_yoneticisi_.online_peer_count() > 0)
+    if (peer_manager_.online_peer_count() > 0)
     {
-        peer_bulundu_ = true;
-        tamamlandi_ = true;
+        peer_found_ = true;
+        finished_ = true;
         return;
     }
 
-    const auto gecen = std::chrono::duration_cast<std::chrono::milliseconds>(
-            now - baslangic_);
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - start_);
 
-    if (gecen >= azami_bekleme_)
+    if (elapsed >= max_wait_)
     {
         // Kimse duyulmadı ama beklemeye devam etmiyoruz: var olanlarla
         // (yani yalnız başımıza) devam ederiz.
-        tamamlandi_ = true;
+        finished_ = true;
     }
 }
 
@@ -43,7 +43,7 @@ void DiscoveryTask::on_exit()
 
 bool DiscoveryTask::is_finished() const
 {
-    return tamamlandi_;
+    return finished_;
 }
 
 TaskType DiscoveryTask::get_type() const

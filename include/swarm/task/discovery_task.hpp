@@ -17,13 +17,13 @@ namespace swarm {
 class DiscoveryTask : public Task
 {
 public:
-    static constexpr std::chrono::milliseconds VARSAYILAN_AZAMI_BEKLEME{5000};
+    static constexpr std::chrono::milliseconds DEFAULT_MAX_WAIT{5000};
 
     // PeerManager `const&` alınıyor: DiscoveryTask peer tablosunu yalnızca
     // OKUR, değiştirmez. Tabloyu güncelleyen, ağ dinleyen thread'dir.
     DiscoveryTask(
-            const PeerManager& peer_yoneticisi,
-            std::chrono::milliseconds azami_bekleme = VARSAYILAN_AZAMI_BEKLEME);
+            const PeerManager& peer_manager,
+            std::chrono::milliseconds max_wait = DEFAULT_MAX_WAIT);
 
     void on_enter(TimePoint now) override;
     void run(TimePoint now) override;
@@ -32,14 +32,14 @@ public:
     TaskType get_type() const override;
 
     // Görev, peer bulduğu için mi yoksa süre dolduğu için mi bitti?
-    bool peer_bulundu() const { return peer_bulundu_; }
+    bool peer_found() const { return peer_found_; }
 
 private:
-    const PeerManager& peer_yoneticisi_;
-    std::chrono::milliseconds azami_bekleme_;
-    TimePoint baslangic_{};
-    bool peer_bulundu_ = false;
-    bool tamamlandi_ = false;
+    const PeerManager& peer_manager_;
+    std::chrono::milliseconds max_wait_;
+    TimePoint start_{};
+    bool peer_found_ = false;
+    bool finished_ = false;
 };
 
 }  // namespace swarm

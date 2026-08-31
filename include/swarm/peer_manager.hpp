@@ -56,7 +56,7 @@ class PeerManager
 {
 public:
     // Bir peer'dan bu süre boyunca heartbeat gelmezse OFFLINE sayılır.
-    static constexpr std::chrono::milliseconds VARSAYILAN_HEARTBEAT_TIMEOUT{3000};
+    static constexpr std::chrono::milliseconds DEFAULT_HEARTBEAT_TIMEOUT{3000};
 
     // RESTART TESPİT EŞİĞİ.
     //
@@ -79,13 +79,13 @@ public:
     //
     // Bu eşik asıl bayatlık korumasını zayıflatmaz: küçük geri sıçramalar
     // (sıra bozulması) hâlâ `seq <= last_seen_seq` kuralıyla atılır.
-    static constexpr uint32_t RESTART_TESPIT_ESIGI = 20;
+    static constexpr uint32_t RESTART_DETECTION_THRESHOLD = 20;
 
     // `explicit`: tek parametreli kurucuların istenmeyen örtük (implicit)
     // dönüşüm yapmasını engeller. Bu olmasaydı bir fonksiyona yanlışlıkla
     // süre verildiğinde derleyici onu sessizce PeerManager'a çevirebilirdi.
     explicit PeerManager(
-            std::chrono::milliseconds heartbeat_timeout = VARSAYILAN_HEARTBEAT_TIMEOUT);
+            std::chrono::milliseconds heartbeat_timeout = DEFAULT_HEARTBEAT_TIMEOUT);
 
     // Bir heartbeat alındığında çağrılır.
     // Peer tabloda yoksa eklenir. Peer OFFLINE'dan ONLINE'a geçiyorsa
@@ -98,12 +98,12 @@ public:
     // Dönüş: paket kabul edildiyse true, bayat/tekrar olduğu için
     //        atıldıysa false.
     //
-    // `yeni_akis_basladi` verilirse, bu paketin o peer'dan gelen ilk paket
+    // `new_stream_started` verilirse, bu paketin o peer'dan gelen ilk paket
     // olup olmadığı (sayaç sıfırdan başlıyor mu) oraya yazılır.
     bool on_telemetry(
             const Telemetry& telemetry,
             std::chrono::steady_clock::time_point now,
-            bool* yeni_akis_basladi = nullptr);
+            bool* new_stream_started = nullptr);
 
     // Zaman aşımına uğramış peer'ları OFFLINE olarak işaretler.
     // Düzenli aralıklarla (heartbeat döngüsünden) çağrılması beklenir.

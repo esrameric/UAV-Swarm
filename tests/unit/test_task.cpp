@@ -1,5 +1,5 @@
 // ============================================================================
-//  Faz 2.1 — Soyut Task arayüzünün testi
+//  Faz 2.1 — Soyut Task interface'inin testi
 //
 //  Soyut bir sınıfın kendisi örneklenemez; test etmenin yolu, ondan türeyen
 //  küçük bir "sahte" (fake/test double) child yazıp POLİMORFİZMİN gerçekten
@@ -19,7 +19,7 @@ namespace {
 
 // Task'tan türeyen sahte bir görev. `: public Task` KALITIM (inheritance)
 // söz dizimidir: "SahteGorev bir Task'tır".
-class SahteGorev : public swarm::Task
+class FakeTask : public swarm::Task
 {
 public:
     // `override`: "bu fonksiyon taban sınıftaki sanal bir fonksiyonu eziyor"
@@ -27,24 +27,24 @@ public:
     // sessizce yeni bir fonksiyon tanımlamış olmaktan korur.
     void on_enter(swarm::TimePoint) override
     {
-        cagri_sirasi.push_back("on_enter");
+        call_order.push_back("on_enter");
     }
 
     void run(swarm::TimePoint) override
     {
-        cagri_sirasi.push_back("run");
-        ++calisma_sayisi;
+        call_order.push_back("run");
+        ++run_count;
     }
 
     void on_exit() override
     {
-        cagri_sirasi.push_back("on_exit");
+        call_order.push_back("on_exit");
     }
 
     bool is_finished() const override
     {
         // İki kez çalıştıktan sonra bittiğini söylesin.
-        return calisma_sayisi >= 2;
+        return run_count >= 2;
     }
 
     swarm::TaskType get_type() const override
@@ -52,38 +52,38 @@ public:
         return swarm::TaskType::HOVER;
     }
 
-    int calisma_sayisi = 0;
-    std::vector<std::string> cagri_sirasi;
+    int run_count = 0;
+    std::vector<std::string> call_order;
 };
 
 }  // namespace
 
 TEST(Task, ChildKendiTipiniBildirir)
 {
-    const SahteGorev gorev;
+    const FakeTask task;
 
-    EXPECT_EQ(gorev.get_type(), swarm::TaskType::HOVER);
+    EXPECT_EQ(task.get_type(), swarm::TaskType::HOVER);
 }
 
 TEST(Task, YasamDongusuSiraylaCalisir)
 {
-    SahteGorev gorev;
-    const swarm::TimePoint simdi{};
+    FakeTask task;
+    const swarm::TimePoint current_time{};
 
-    gorev.on_enter(simdi);
-    gorev.run(simdi);
-    gorev.run(simdi);
-    gorev.on_exit();
+    task.on_enter(current_time);
+    task.run(current_time);
+    task.run(current_time);
+    task.on_exit();
 
-    const std::vector<std::string> beklenen{"on_enter", "run", "run", "on_exit"};
-    EXPECT_EQ(gorev.cagri_sirasi, beklenen);
+    const std::vector<std::string> expected{"on_enter", "run", "run", "on_exit"};
+    EXPECT_EQ(task.call_order, expected);
 }
 
 TEST(Task, IsFinishedBaslangictaFalse)
 {
-    const SahteGorev gorev;
+    const FakeTask task;
 
-    EXPECT_FALSE(gorev.is_finished());
+    EXPECT_FALSE(task.is_finished());
 }
 
 TEST(Task, PolimorfizmTabanIsaretcisiUzerindenCalisir)
@@ -95,35 +95,35 @@ TEST(Task, PolimorfizmTabanIsaretcisiUzerindenCalisir)
     // std::unique_ptr: AKILLI İŞARETÇİ (smart pointer). İşaret ettiği
     // nesnenin tek sahibidir ve kapsam dışına çıkınca onu otomatik siler.
     // `delete` yazmayı unutma ihtimalini ortadan kaldırır (RAII).
-    std::unique_ptr<swarm::Task> gorev = std::make_unique<SahteGorev>();
-    const swarm::TimePoint simdi{};
+    std::unique_ptr<swarm::Task> task = std::make_unique<FakeTask>();
+    const swarm::TimePoint current_time{};
 
-    EXPECT_EQ(gorev->get_type(), swarm::TaskType::HOVER);
-    EXPECT_FALSE(gorev->is_finished());
+    EXPECT_EQ(task->get_type(), swarm::TaskType::HOVER);
+    EXPECT_FALSE(task->is_finished());
 
-    gorev->on_enter(simdi);
-    gorev->run(simdi);
-    EXPECT_FALSE(gorev->is_finished());
+    task->on_enter(current_time);
+    task->run(current_time);
+    EXPECT_FALSE(task->is_finished());
 
-    gorev->run(simdi);
-    EXPECT_TRUE(gorev->is_finished());
+    task->run(current_time);
+    EXPECT_TRUE(task->is_finished());
 }
 
 TEST(Task, FarkliChildlarAyniKaptaTutulabilir)
 {
-    // Polimorfizmin pratik faydası: farklı türden görevler tek bir kuyrukta
-    // yan yana durabilir ve aynı arayüzle işletilebilir.
-    std::vector<std::unique_ptr<swarm::Task>> kuyruk;
-    kuyruk.push_back(std::make_unique<SahteGorev>());
-    kuyruk.push_back(std::make_unique<SahteGorev>());
+    // Polimorfizmin pratik faydası: farklı türden görevler tek bir queue'da
+    // yan yana durabilir ve aynı interface'le işletilebilir.
+    std::vector<std::unique_ptr<swarm::Task>> queue;
+    queue.push_back(std::make_unique<FakeTask>());
+    queue.push_back(std::make_unique<FakeTask>());
 
-    const swarm::TimePoint simdi{};
-    for (auto& gorev : kuyruk)
+    const swarm::TimePoint current_time{};
+    for (auto& task : queue)
     {
-        gorev->on_enter(simdi);
-        gorev->run(simdi);
+        task->on_enter(current_time);
+        task->run(current_time);
     }
 
-    EXPECT_EQ(kuyruk.size(), 2u);
-    EXPECT_EQ(kuyruk[0]->get_type(), swarm::TaskType::HOVER);
+    EXPECT_EQ(queue.size(), 2u);
+    EXPECT_EQ(queue[0]->get_type(), swarm::TaskType::HOVER);
 }

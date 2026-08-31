@@ -15,8 +15,8 @@
 set -euo pipefail
 
 WORKSPACE="$HOME/Fast-DDS"
-BETIK_DIZINI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPOS_FILE="$BETIK_DIZINI/fastdds.repos"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPOS_FILE="$SCRIPT_DIR/fastdds.repos"
 
 # --- ROS 2 çakışması temizliği ----------------------------------------------
 # Bu proje ROS 2 KULLANMIYOR (Bölüm 2), ama geliştirme makinesinde ROS 2 kurulu
@@ -69,7 +69,7 @@ cd "$WORKSPACE/src/fastddsgen"
 
 echo "==> 5/5  Doğrulama"
 # shellcheck disable=SC1091
-source "$BETIK_DIZINI/fastdds_env.sh"
+source "$SCRIPT_DIR/fastdds_env.sh"
 fastddsgen -version
 
 cat <<EOF
@@ -78,6 +78,6 @@ Kurulum tamam.
 
 Her yeni terminalde Fast DDS'i ortama almak için:
 
-    source $BETIK_DIZINI/fastdds_env.sh
+    source $SCRIPT_DIR/fastdds_env.sh
 
 EOF

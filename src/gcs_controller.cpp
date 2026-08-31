@@ -7,93 +7,93 @@
 
 namespace swarm {
 
-GcsController::GcsController(SwarmManager& yonetici)
-    : yonetici_(yonetici)
+GcsController::GcsController(SwarmManager& manager)
+    : manager_(manager)
 {
 }
 
-uint32_t GcsController::gorev_teklif_et(
-        DroneRole hedef_rol,
-        double hedef_x,
-        double hedef_y,
+uint32_t GcsController::propose_task(
+        DroneRole target_role,
+        double target_x,
+        double target_y,
         TimePoint now)
 {
-    aktif_transaction_id_ = sonraki_transaction_id_;
-    ++sonraki_transaction_id_;
+    active_transaction_id_ = next_transaction_id_;
+    ++next_transaction_id_;
 
     // Oylamaya yalnızca ŞU AN duyduğumuz drone'lar katılır. Hiç ayağa
     // kalkmamış bir drone'un oyunu beklemek, sürüyü 5 saniyelik zaman
     // aşımına mahkûm ederdi (Bölüm 2: non-blocking keşif).
-    const std::vector<uint8_t> oy_verenler = yonetici_.online_drone_ids();
+    const std::vector<uint8_t> voters = manager_.online_drone_ids();
 
     // Emri şimdiden hazırlıyoruz ama YAYINLAMIYORUZ: önce oybirliği şart.
-    bekleyen_emir_ = TaskAllocation{};
-    bekleyen_emir_.task_id(aktif_transaction_id_);
-    bekleyen_emir_.target_role(hedef_rol);
-    bekleyen_emir_.target_x(hedef_x);
-    bekleyen_emir_.target_y(hedef_y);
+    pending_order_ = TaskAllocation{};
+    pending_order_.task_id(active_transaction_id_);
+    pending_order_.target_role(target_role);
+    pending_order_.target_x(target_x);
+    pending_order_.target_y(target_y);
 
     // Oylamayı sürünün geri kalanıyla AYNI ConsensusTask sınıfı yürütür;
     // GCS'e özel ayrı bir consensus motoru yazılmadı (Bölüm 2).
     //
-    // Kuyruğa DOĞRUDAN dokunmuyoruz: GcsController ana thread'den çalışıyor,
-    // görev kuyruğu ise Task Engine thread'ine ait. İstek bırakıyoruz,
-    // kuyruğu o düzenliyor.
-    yonetici_.request_consensus(aktif_transaction_id_, oy_verenler);
+    // Queue'ya DOĞRUDAN dokunmuyoruz: GcsController ana thread'den çalışıyor,
+    // görev queue'su ise Task Engine thread'ine ait. İstek bırakıyoruz,
+    // queue'yu o düzenliyor.
+    manager_.request_consensus(active_transaction_id_, voters);
 
     // Teklif mesajı: vote alanı PENDING'dir — bu, mesajın bir OY değil
     // TEKLİF olduğunu gösterir (Bölüm 3.6).
-    Consensus teklif;
-    teklif.transaction_id(aktif_transaction_id_);
-    teklif.sender_id(yonetici_.config().drone_id);
-    teklif.vote(Vote::PENDING);
-    teklif.seq_num(aktif_transaction_id_);
+    Consensus proposal;
+    proposal.transaction_id(active_transaction_id_);
+    proposal.sender_id(manager_.config().drone_id);
+    proposal.vote(Vote::PENDING);
+    proposal.seq_num(active_transaction_id_);
 
-    yonetici_.publish_consensus(teklif);
+    manager_.publish_consensus(proposal);
 
-    durum_ = Durum::OYLAMA;
+    state_ = State::VOTING;
 
     (void)now;
-    return aktif_transaction_id_;
+    return active_transaction_id_;
 }
 
-void GcsController::sonucu_tuket()
+void GcsController::consume_result()
 {
     // Terminal durumu bir kez okuduktan sonra BOSTA'ya dönüyoruz; aksi halde
     // ana döngü aynı sonucu her turda tekrar tekrar raporlardı.
-    if (durum_ == Durum::GOREV_YAYINLANDI || durum_ == Durum::IPTAL)
+    if (state_ == State::TASK_PUBLISHED || state_ == State::CANCELLED)
     {
-        durum_ = Durum::BOSTA;
+        state_ = State::IDLE;
     }
 }
 
-void GcsController::adim(TimePoint)
+void GcsController::step(TimePoint)
 {
-    if (durum_ != Durum::OYLAMA)
+    if (state_ != State::VOTING)
     {
         return;
     }
 
-    const SwarmManager::ConsensusSonucu sonuc = yonetici_.last_consensus_result();
+    const SwarmManager::ConsensusOutcome result = manager_.last_consensus_result();
 
     // Henüz bir oylama tamamlanmadı ya da tamamlanan bizim turumuz değil.
-    if (!sonuc.gecerli || sonuc.transaction_id != aktif_transaction_id_)
+    if (!result.valid || result.transaction_id != active_transaction_id_)
     {
         return;
     }
 
-    if (sonuc.sonuc == ConsensusResult::COMMITTED)
+    if (result.result == ConsensusResult::COMMITTED)
     {
         // Oybirliği sağlandı: görev emri artık yayınlanabilir.
-        yonetici_.publish_task_allocation(bekleyen_emir_);
-        durum_ = Durum::GOREV_YAYINLANDI;
+        manager_.publish_task_allocation(pending_order_);
+        state_ = State::TASK_PUBLISHED;
         return;
     }
 
-    if (sonuc.sonuc == ConsensusResult::ABORTED)
+    if (result.result == ConsensusResult::ABORTED)
     {
         // Emir YAYINLANMAZ. Bölüm 2: tam ACK sağlanamazsa tüm görev iptal.
-        durum_ = Durum::IPTAL;
+        state_ = State::CANCELLED;
     }
 }
 

@@ -6,7 +6,7 @@
 //  Neden Transient Local: Emirden SONRA ağa katılan bir düğüm de son emri
 //  alabilsin diye (yayıncı son örneği saklar).
 //
-//  Emir bir drone'a değil bir ROLE gönderilir; hangi child task'ın kuyruğa
+//  Emir bir drone'a değil bir ROLE gönderilir; hangi child task'ın queue'ya
 //  gireceğine TaskAllocationEngine karar verir (Bölüm 3.3).
 // ============================================================================
 

@@ -159,7 +159,7 @@ uav-swarm/
 │   ├── peer_info.hpp          #   Başka bir düğüm hakkında bildiklerimiz
 │   ├── peer_manager.hpp       #   Peer table + canlılık/bayatlık kuralları
 │   ├── drone_state.hpp        #   Kendi uçuş durumumuz
-│   ├── command.hpp            #   Komut kuyruğunun eleman tipi
+│   ├── command.hpp            #   Komut queue'sunun eleman tipi
 │   ├── swarm_manager.hpp      #   Singleton, 3 thread, Task Engine
 │   ├── task_allocation_engine.hpp
 │   ├── gcs_controller.hpp     #   GCS'in görev akışı
@@ -230,7 +230,7 @@ yapılmış?" sorusunun cevabını tek yerde bulması.
 | V15 | `DiscoveryTask` bitiş koşulu | En az **bir** peer duyulunca **veya** 5 sn dolunca biter | Bölüm 2'deki non-blocking keşif stratejisi: 3 drone'un hepsi beklenmez, gerçek sahada bir drone hiç ayağa kalkmayabilir. |
 | V16 | Oy verecek kimse yoksa | `ConsensusTask` anında `COMMITTED` olur | Tek başına kalmış bir düğüm oylamada sonsuza kadar kilitlenmemeli. |
 | V17 | Acil durum tanımı | `check_emergency()` iki koşula bakar: kendi batarya **< %15**, veya **bir zamanlar duyulmuş** bir peer'ın susması | Plan `check_emergency()`'nin varlığını söylüyor ama içeriğini tanımlamıyordu. "Hiç duyulmamış" drone acil durum sayılmaz — Bölüm 2'deki non-blocking keşif stratejisiyle tutarlı olması için. |
-| V18 | Acil durum davranışı | Kuyruk boşaltılır, `FailSafeTask` → `LandingTask` yerleştirilir, sonra `IdleTask`'a düşülür | Faz 6.4'ün beklediği davranış: bir container durdurulduğunda `FailSafeTask` tetiklenir. |
+| V18 | Acil durum davranışı | Queue boşaltılır, `FailSafeTask` → `LandingTask` yerleştirilir, sonra `IdleTask`'a düşülür | Faz 6.4'ün beklediği davranış: bir container durdurulduğunda `FailSafeTask` tetiklenir. |
 | V19 | Yayın kanalları | `SwarmManager` heartbeat/telemetri yayınını `std::function` üzerinden yapar | Faz 3'te FastDDS henüz yok. Bu katman sayesinde SwarmManager DDS'ten bağımsız test edilebiliyor; Faz 4'te `FastDDSWrapper` kanalları dolduruyor. |
 | V20 | **GCS'in Task Engine kapsamı** (Bölüm 9'daki açık nokta) | GCS drone'larla aynı `SwarmManager`/Fast DDS altyapısını kullanır ama derin bir Task hiyerarşisi **kullanmaz**. `GcsController` üç şey yapar: teklif et → oylamayı izle → oybirliğinde emri yayınla. | GCS uçmaz; ScoutSearch, GoToTarget, Landing gibi görevlerin GCS'te karşılığı yok. Oylama için ayrı bir motor da yazılmadı — sürünün geri kalanıyla **aynı `ConsensusTask` sınıfı** kullanılıyor (Bölüm 2). |
 | V21 | Teklif ile oy mesajının ayrımı | Aynı `Consensus` mesajı kullanılır; `vote == PENDING` ise **teklif**, `ACK`/`NACK` ise **oy**dur | Ayrı bir mesaj tipi eklemeye gerek kalmadı; `PENDING = 0` zaten "henüz oy yok" demek olduğu için anlam doğal olarak örtüşüyor. |
@@ -239,11 +239,11 @@ yapılmış?" sorusunun cevabını tek yerde bulması.
 | V24 | **`task_alloc`/`consensus` için "TCP"** | Teslim garantisi **QoS ile** sağlanıyor (`RELIABLE` + `TRANSIENT_LOCAL`); taşıma katmanı participant'ın varsayılan UDP taşıyıcısı | Bölüm 3.4 bu iki topic için "TCP" diyor. DDS'te **taşıma katmanı participant seviyesindedir, topic seviyesinde seçilemez** — bir DomainParticipant'ın bazı topic'lerini TCP, bazılarını UDP yapmak mümkün değil. Planın istediği asıl şey (%100 ulaştırma garantisi) `RELIABLE` QoS ile birebir karşılanıyor ve testle doğrulanıyor. Gerçekten TCP taşıyıcı isteniyorsa `DomainParticipantQos`'a bir `TCPv4TransportDescriptor` eklenip initial peers elle tanımlanmalı; bu, multicast tabanlı otomatik keşfi devre dışı bırakır ve Bölüm 2'deki "IP'leri ağ üzerinden keşfet" gereksinimiyle çelişir. |
 | V25 | GCS görev senaryosu | GCS, keşif için 8 sn bekler; sonra sırayla **iki** görev teklif eder: `SCOUT` → (80, 40), ardından `STRIKER` → (150, −60) | Plan GCS'in görev emri vereceğini söylüyor ama içeriğini tanımlamıyordu. İki görev, heterojen rol ayrımının (Faz 6.6) gerçek bir akışta gözlemlenmesini sağlıyor. |
 | V26 | `INITIAL_BATTERY` env değişkeni | Düğümün başlangıç bataryası (varsayılan 100) | Faz 6.3'teki NACK senaryosunu kurmanın yolu: bataryası kritik olan drone consensus'ta `NACK` verir. Planda yok, ama 6.3'ün test edilebilmesi için gerekli. |
-| V27 | Görev kuyruğuna erişim | GCS oylama başlatmak için kuyruğa **doğrudan dokunmaz**; `SwarmManager::request_consensus()` ile istek bırakır, kuyruğu Task Engine düzenler | İlk uygulamada `GcsController` kuyruğa ana thread'den dokunuyordu — bu, "task_queue'ya yalnızca Thread 3 dokunur" tasarımını bozan gerçek bir veri yarışıydı ve `on_enter()` atlandığı için oylamayı anında zaman aşımına düşürüyordu. |
+| V27 | Görev queue'suna erişim | GCS oylama başlatmak için queue'ya **doğrudan dokunmaz**; `SwarmManager::request_consensus()` ile istek bırakır, queue'yu Task Engine düzenler | İlk uygulamada `GcsController` queue'ya ana thread'den dokunuyordu — bu, "task_queue'ya yalnızca Thread 3 dokunur" tasarımını bozan gerçek bir data race'ti ve `on_enter()` atlandığı için oylamayı anında zaman aşımına düşürüyordu. |
 | V28 | İmaj derleme script'i | `docker build` doğrudan çağrılmaz; `tools/build_docker_image.sh` kullanılır | Kurumsal TLS-inspection proxy'si arkasındaki makinelerde host'un kök sertifikaları build context'ine kopyalanmalı, yoksa `fastddsgen`'in Gradle indirmesi TLS doğrulamasında kalıyor. **Java kendi ayrı truststore'unu kullandığı için** sistem sertifikalarını kurmak tek başına yetmiyor. Script sertifikaları build sonrası siler; proxy yoksa hiçbir şey yapmaz. |
 | V29 | `FAULT_SILENT_CONSENSUS` (arıza enjeksiyonu) | Açıkken drone consensus teklifine hiç cevap vermez — "ayakta ama sessiz" düğüm simüle edilir | Faz 6.3'ün doğrulaması gereken 5 saniyelik zaman aşımı senaryosu başka türlü kurulamıyor: bir container'ı durdurmak/duraklatmak işe yaramaz, çünkü heartbeat'i kesildiği anda (3 sn) diğer düğümler onu OFFLINE sayıp **oy verecekler listesinden çıkarır** ve oylama zaman aşımına hiç düşmez. Üretim davranışı değil, bilinçli bir test aracıdır; varsayılan kapalıdır. |
 | V30 | Telemetri akış logu | Bir peer'dan gelen **ilk** kabul edilen telemetri paketinde bir kez `[telemetry] id=N akisi basladi` yazılır | 20–50 Hz'lik akışın tamamını loglamak çıktıyı okunamaz hâle getirirdi. Tek satır, Faz 6.5'in "restart sonrası taze veri kabul ediliyor mu" sorusunu cevaplamaya yetiyor. |
-| V31 | **Hızlı restart koruması** | `last_seen_seq`, plandaki OFFLINE→ONLINE geçişine ek olarak, gelen `seq_num` **20'den fazla geriye sıçradığında** da sıfırlanır (`PeerManager::RESTART_TESPIT_ESIGI`) | Faz 6.5 entegrasyon testi gerçek bir açık ortaya çıkardı: bir drone heartbeat zaman aşımından (3 sn) **daha hızlı** yeniden başlarsa hiç OFFLINE görünmez, planın sıfırlama mekanizması hiç tetiklenmez ve restart sonrası taze verisi sessizce "bayat" diye reddedilir. Sayaç 10 Hz ilerlediği için eski değeri yakalamak dakikalar sürebilirdi. Eşik 20 ≈ 10 Hz'de 2 saniyelik veri; LAN'da UDP sıra bozulması birkaç paketliktir, bu yüzden asıl bayatlık koruması zayıflamıyor (test ediliyor). Eşiği gereğinden yüksek tutmak (100 = 10 sn) korumayı etkisiz kılıyordu: yeni başlamış bir düğümün sayacı henüz eşiğin altındayken restart hiç tespit edilemiyordu. |
+| V31 | **Hızlı restart koruması** | `last_seen_seq`, plandaki OFFLINE→ONLINE geçişine ek olarak, gelen `seq_num` **20'den fazla geriye sıçradığında** da sıfırlanır (`PeerManager::RESTART_DETECTION_THRESHOLD`) | Faz 6.5 entegrasyon testi gerçek bir açık ortaya çıkardı: bir drone heartbeat zaman aşımından (3 sn) **daha hızlı** yeniden başlarsa hiç OFFLINE görünmez, planın sıfırlama mekanizması hiç tetiklenmez ve restart sonrası taze verisi sessizce "bayat" diye reddedilir. Sayaç 10 Hz ilerlediği için eski değeri yakalamak dakikalar sürebilirdi. Eşik 20 ≈ 10 Hz'de 2 saniyelik veri; LAN'da UDP sıra bozulması birkaç paketliktir, bu yüzden asıl bayatlık koruması zayıflamıyor (test ediliyor). Eşiği gereğinden yüksek tutmak (100 = 10 sn) korumayı etkisiz kılıyordu: yeni başlamış bir düğümün sayacı henüz eşiğin altındayken restart hiç tespit edilemiyordu. |
 | V32 | Task Engine adım sırası | Aktif görev, kendisine yönelik komutlar işlenmeden **önce** `on_enter()` ile başlatılır | İlk sıralama (önce komutlar, sonra `on_enter`) gerçek bir yarış hatasıydı: `ConsensusTask::on_enter()` sonucu `PENDING`'e sıfırladığı için, aynı turda gelen tüm ACK'lerle verilmiş `COMMITTED` kararı siliniyor ve oylama 5 sn sonra **hatalı** biçimde zaman aşımına düşüyordu — drone'lar oy vermiş olmasına rağmen görev iptal ediliyordu. Ağ (~2 ms) Task Engine turundan (20 ms) hızlı olduğu için bu, çoğu çalıştırmada değil ama düzenli olarak tekrarlanıyordu. |
 
 ---
@@ -287,7 +287,7 @@ olarak sadece veri taşıyan tipler için `struct`, davranışı olan tipler iç
 
 **Default member initializer** — Bir üye alanın tanımında doğrudan `= 0` gibi
 bir başlangıç değeri vermek. Kurucu metotta ayrıca belirtilmezse alan bu
-değeri alır; böylece "ilklenmemiş çöp değer" okuma hatası baştan imkânsızlaşır.
+değeri alır; böylece "uninitialized" bir değer okuma hatası baştan imkânsızlaşır.
 
 **`const` üye fonksiyon** — İmzanın sonundaki `const` (`bool is_in_swarm()
 const`), "bu fonksiyon nesneyi değiştirmez" sözüdür. Derleyici bu sözü zorlar
@@ -418,9 +418,9 @@ uygulama kodu hiç IP taşımadan karşılanır.
 QoS'ta yayıncı ve abone **hiç eşleşmez** ve veri akmaz — bu yüzden iki taraf
 tek bir yerden ayarlanır.
 
-**Dinleyici (listener) ve DDS thread'i** — Veri geldiğinde Fast DDS
-`on_data_available()`'ı **kendi thread'inden** çağırır. Bu yüzden geri
-çağırma içinde uzun iş yapılmaz; veri hemen kuyruğa bırakılır.
+**Listener ve DDS thread'i** — Veri geldiğinde Fast DDS
+`on_data_available()`'ı **kendi thread'inden** çağırır. Bu yüzden callback
+içinde uzun iş yapılmaz; veri hemen queue'ya bırakılır.
 
 **PIMPL ("pointer to implementation")** — Bir sınıfın gerçek üyelerini
 `.cpp` içindeki gizli bir yapıda tutma tekniği. Böylece başlık dosyasını
@@ -429,7 +429,7 @@ kısalır.
 
 **Şablon (template)** — Aynı kodu farklı tipler için tekrar yazmamayı
 sağlayan mekanizma. Bu proje genel olarak template'lerden kaçınır, ama
-`DdsKanal` için gerekliydi: dört mesaj tipi için birebir aynı yüz satırı dört
+`DdsChannel` için gerekliydi: dört mesaj tipi için birebir aynı yüz satırı dört
 kez yazmak, tek bir şablondan çok daha zor okunurdu.
 
 ### Eşzamanlılık (Concurrency)
@@ -441,13 +441,13 @@ görev yürütme (hesap ağırlıklı) birbirini bekletmesin diye ayrıldılar.
 **Singleton** — Bir sınıftan programda **yalnızca bir** nesne olmasını
 garanti eden tasarım deseni. Kurucu `private` yapılır, kopyalama/taşıma
 `= delete` ile silinir, tek örnek `get_instance()` içinde tutulur. Burada
-gerekli, çünkü peer table ve kuyruklar tek bir gerçeğin kaydı olmalı: üç
+gerekli, çünkü peer table ve queue'lar tek bir gerçeğin kaydı olmalı: üç
 thread'in aynı tabloyu görmesi şart.
 
 **Meyers Singleton** — Tek örneği fonksiyon içinde `static` yerel değişken
 olarak tutma tekniği. C++11'den beri bu tür değişkenlerin ilklenmesi
 **thread-safe olmak zorundadır**: iki thread aynı anda `get_instance()`
-çağırsa bile nesne yalnızca bir kez kurulur. Elle kilit yazmaktan daha
+çağırsa bile nesne yalnızca bir kez kurulur. Elle lock yazmaktan daha
 güvenlidir.
 
 **`= delete`** — "Bu fonksiyon yok; kullanmaya çalışan derleme hatası alsın."
@@ -460,27 +460,27 @@ dışarıdaki hangi değişkenleri kullanacağını söyler; `&` referansla (as�
 nesne), isim tek başına ise kopyayla yakalar.
 
 **Mutex (`std::mutex`)** — "Mutual exclusion" = karşılıklı dışlama. Aynı
-anda yalnızca bir thread'in korunan veriye dokunmasını sağlayan kilit.
+anda yalnızca bir thread'in korunan veriye dokunmasını sağlayan lock.
 
-**Veri yarışı (data race)** — İki thread'in aynı veriye, en az biri yazarak,
-kilitsiz erişmesi. C++'ta bu **tanımsız davranıştır**: bazen çalışır, bazen
-sessizce yanlış sonuç verir, bazen çöker. Bu yüzden paylaşılan her yapı bir
-mutex ile korunur.
+**Data race** — İki thread'in aynı veriye, en az biri yazarak,
+lock kullanmadan erişmesi. C++'ta bu **tanımsız davranıştır**: bazen çalışır,
+bazen sessizce yanlış sonuç verir, bazen çöker. Bu yüzden paylaşılan her yapı
+bir mutex ile korunur.
 
-**`std::lock_guard`** — RAII tabanlı kilit. Kurulduğu anda mutex'i kilitler,
+**`std::lock_guard`** — RAII tabanlı lock. Kurulduğu anda mutex'i kilitler,
 kapsam bittiğinde **otomatik** açar — fonksiyondan erken `return` edilse veya
 istisna atılsa bile. Elle `lock()`/`unlock()` yazmak, bir yolda `unlock`'u
-unutup tüm programı kilitleme riski taşır.
+unutup tüm programı lock'lu bırakma riski taşır.
 
 **`mutable`** — Bir üyenin, `const` üye fonksiyon içinde bile
 değiştirilebilmesini sağlar. Mutex'ler için gerekli: `peer_count()` mantıksal
-olarak `const`'tur ama okumak için yine de kilidi kilitlemek zorundadır.
+olarak `const`'tur ama okumak için yine de lock'u almak zorundadır.
 
 **Neden her veriye mutex konmaz?** `task_queue_`'ya yalnızca Task Engine
-thread'i dokunur. Tek thread'in eriştiği veriye kilit koymak hem gereksiz
+thread'i dokunur. Tek thread'in eriştiği veriye lock koymak hem gereksiz
 maliyettir hem de kodu okuyana yanlış bir "burada yarış var" sinyali verir.
 
-**`std::deque`** — İki uçtan da hızlı ekleme/çıkarma yapılabilen kuyruk.
+**`std::deque`** — İki uçtan da hızlı ekleme/çıkarma yapılabilen queue.
 Komutlar sona eklenir, baştan işlenir (FIFO — ilk giren ilk çıkar).
 
 **`std::move` ve taşıma (move)** — `std::unique_ptr` kopyalanamaz (tek
@@ -488,8 +488,8 @@ sahiplik kuralı), yalnızca **taşınabilir**. `std::move`, "bu nesnenin
 sahipliğini devrediyorum" demenin yoludur; taşımadan sonra çağıranın elindeki
 işaretçi boşalır.
 
-**`std::atomic<bool>`** — Birden fazla thread'in kilitsiz, güvenle okuyup
-yazabildiği bayrak. Sıradan bir `bool` burada veri yarışı olurdu: derleyici
+**`std::atomic<bool>`** — Birden fazla thread'in lock kullanmadan, güvenle okuyup
+yazabildiği bayrak. Sıradan bir `bool` burada data race olurdu: derleyici
 onu bir yazmaca (register) alıp döngüden çıkarabilir ve thread durma
 işaretini hiç görmeyebilirdi.
 
@@ -525,16 +525,17 @@ edilebilir tutulur (`timeout_ile_iptal_oldu()`).
 
 ### Nesne Yönelimli Programlama
 
-**Sınıf (`class`) ve kalıtım (inheritance)** — Sınıf, veri ve davranışı bir
-arada tanımlayan tiptir. `class SahteGorev : public Task` yazımı kalıtımdır:
-"SahteGorev **bir** Task'tır". Child sınıf, taban sınıfın arayüzünü devralır.
+**Sınıf (`class`) ve inheritance** — Sınıf, veri ve davranışı bir
+arada tanımlayan tiptir. `class SahteGorev : public Task` yazımı bir
+inheritance örneğidir: "SahteGorev **bir** Task'tır". Child sınıf, taban
+sınıfın interface'ini devralır.
 
 **Soyut sınıf ve saf sanal fonksiyon** — Gövdesi olmayan, `= 0` ile biten
 fonksiyona **saf sanal** (pure virtual) denir. En az bir tanesine sahip sınıf
 **soyut** olur: doğrudan örneği oluşturulamaz, yalnızca miras alınmak için
 vardır. Her child, bu fonksiyonların gövdesini yazmak zorundadır.
 
-**Polimorfizm** — Farklı türden nesneleri **aynı arayüz** üzerinden
+**Polimorfizm** — Farklı türden nesneleri **aynı interface** üzerinden
 kullanabilmek. Task Engine elindeki görevin hangi child olduğunu bilmez,
 hepsini `Task*` olarak tutar; `run()` çağrısı yine de doğru child'ın
 gövdesine gider. Bu sayede yeni bir görev eklemek mevcut hiçbir dosyayı
@@ -549,7 +550,7 @@ okunamaz hâle gelir.
 **`virtual` yıkıcı** — Polimorfik olarak kullanılan (taban sınıf işaretçisi
 üzerinden silinen) her sınıfın yıkıcısı `virtual` olmalıdır. Aksi hâlde
 silme anında yalnızca taban sınıfın yıkıcısı çalışır, child'ınki atlanır ve
-sessiz bir kaynak sızıntısı oluşur.
+sessiz bir memory leak oluşur.
 
 **`override`** — "Bu fonksiyon taban sınıftaki sanal bir fonksiyonu eziyor"
 demektir. İsim veya imza yanlış yazılırsa derleyici hata verir; sessizce
@@ -617,8 +618,8 @@ kılardı. Bu yüzden bilinçli olarak custom bridge seçildi (Bölüm 2).
 
 **Unicast / Multicast** — Unicast, paketin tek bir alıcıya gönderilmesidir.
 Multicast ise paketin bir **gruba** (örn. `239.255.0.1`) tek seferde
-gönderilmesi; o gruba katılmış tüm dinleyiciler paketi alır. Sürüdeki
-heartbeat/telemetri yayınları için idealdir: gönderen, kaç dinleyici olduğunu
+gönderilmesi; o gruba katılmış tüm listener'lar paketi alır. Sürüdeki
+heartbeat/telemetri yayınları için idealdir: gönderen, kaç listener olduğunu
 bilmek zorunda kalmaz.
 
 **IGMP join** — Bir sürecin çekirdeğe "şu multicast grubunu dinlemek
@@ -631,7 +632,7 @@ sınırlayan sayaç. Multicast'te yanlışlıkla tüm ağa yayılmayı önler; a
 ağı içinde `1` yeterlidir.
 
 **RAII (Resource Acquisition Is Initialization)** — C++'ın temel kaynak yönetim
-fikri: bir kaynak (bellek, dosya, soket, kilit) bir nesnenin ömrüne bağlanır.
+fikri: bir kaynak (bellek, dosya, soket, lock) bir nesnenin ömrüne bağlanır.
 Nesne oluşturulurken kaynak alınır, nesne kapsam (scope) dışına çıkınca
 otomatik olarak bırakılır. `std::string`'in belleğini elle serbest bırakmamıza
 gerek olmamasının sebebi budur.

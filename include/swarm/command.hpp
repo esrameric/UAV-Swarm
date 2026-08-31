@@ -1,8 +1,8 @@
 // ============================================================================
 //  Command — ağdan gelip işlenmeyi bekleyen bir komut
 //
-//  Komut kuyruğuna (command_queue) iki tür mesaj girer: görev dağıtım emri
-//  (TaskAllocation) ve consensus oyu (Consensus). İkisini tek bir kuyrukta
+//  Komut queue'suna (command_queue) iki tür mesaj girer: görev dağıtım emri
+//  (TaskAllocation) ve consensus oyu (Consensus). İkisini tek bir queue'da
 //  taşıyabilmek için ortak bir kap tipine ihtiyaç var.
 //
 //  Neden `std::variant` değil? C++17'nin variant'ı bu iş için "doğru" araç
@@ -35,20 +35,20 @@ struct Command
 
     // Okunabilir kurucular: `Command::gorev_emri(emir)` yazımı,
     // alanları elle doldurmaktan daha az hata yapılır.
-    static Command gorev_emri(const TaskAllocation& emir)
+    static Command task_order(const TaskAllocation& order)
     {
-        Command komut;
-        komut.type = CommandType::TASK_ALLOCATION;
-        komut.task_allocation = emir;
-        return komut;
+        Command command;
+        command.type = CommandType::TASK_ALLOCATION;
+        command.task_allocation = order;
+        return command;
     }
 
-    static Command consensus_oyu(const Consensus& oy)
+    static Command consensus_vote(const Consensus& vote)
     {
-        Command komut;
-        komut.type = CommandType::CONSENSUS;
-        komut.consensus = oy;
-        return komut;
+        Command command;
+        command.type = CommandType::CONSENSUS;
+        command.consensus = vote;
+        return command;
     }
 };
 

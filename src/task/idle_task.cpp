@@ -2,20 +2,20 @@
 
 namespace swarm {
 
-IdleTask::IdleTask(DroneState& durum)
-    : durum_(durum)
+IdleTask::IdleTask(DroneState& state)
+    : state_(state)
 {
 }
 
 void IdleTask::on_enter(TimePoint)
 {
-    durum_.hizi_sifirla();
+    state_.reset_velocity();
 }
 
 void IdleTask::run(TimePoint)
 {
     // Boşta beklerken olduğumuz yerde duruyoruz.
-    durum_.hizi_sifirla();
+    state_.reset_velocity();
 }
 
 void IdleTask::on_exit()

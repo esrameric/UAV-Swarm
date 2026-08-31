@@ -20,65 +20,65 @@
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
-ONAYLAR_DIZINI="$(dirname "${BASH_SOURCE[0]}")/overrides"
+OVERRIDES_DIR="$(dirname "${BASH_SOURCE[0]}")/overrides"
 
 echo "== Faz 6.3: Consensus basarisizliginda gorev iptali =="
-temizlikle_bitir
+cleanup_on_exit
 
 # ---------------------------------------------------------------------------
 #  A) NACK senaryosu
 # ---------------------------------------------------------------------------
-baslik "A) Bataryasi kritik drone NACK veriyor"
+section "A) Bataryasi kritik drone NACK veriyor"
 
-EK_COMPOSE=("$ONAYLAR_DIZINI/dusuk_batarya.yml")
-suruyu_durdur
-suruyu_baslat
+EK_COMPOSE=("$OVERRIDES_DIR/dusuk_batarya.yml")
+stop_swarm
+start_swarm
 
-dogrula_log gcs_node "yeni peer: id=3" 60 "GCS üç drone'u da keşfetti"
-dogrula_log gcs_node "\[gcs\] gorev teklif ediliyor" 40 "GCS görev teklif etti"
+verify_log gcs_node "yeni peer: id=3" 60 "GCS üç drone'u da keşfetti"
+verify_log gcs_node "\[gcs\] gorev teklif ediliyor" 40 "GCS görev teklif etti"
 
-dogrula_log drone_striker_1 "\[consensus\] oy veriliyor tx=1 vote=NACK" 30 \
+verify_log drone_striker_1 "\[consensus\] oy veriliyor tx=1 vote=NACK" 30 \
     "Bataryası kritik drone NACK verdi"
-dogrula_log drone_scout "\[consensus\] oy veriliyor tx=1 vote=ACK" 30 \
+verify_log drone_scout "\[consensus\] oy veriliyor tx=1 vote=ACK" 30 \
     "Sağlıklı drone ACK verdi"
 
-dogrula_log gcs_node "\[consensus\] sonuc tx=1 ABORTED_NACK" 30 \
+verify_log gcs_node "\[consensus\] sonuc tx=1 ABORTED_NACK" 30 \
     "Oylama NACK sebebiyle iptal oldu (timeout değil)"
-dogrula_log gcs_node "\[gcs\] gorev IPTAL edildi task_id=1" 20 \
+verify_log gcs_node "\[gcs\] gorev IPTAL edildi task_id=1" 20 \
     "GCS görevi iptal etti"
-dogrula_log_yok gcs_node "gorev emri yayinlandi task_id=1" 2 \
+verify_log_absent gcs_node "gorev emri yayinlandi task_id=1" 2 \
     "Görev emri YAYINLANMADI"
 
-suruyu_durdur
+stop_swarm
 
 # ---------------------------------------------------------------------------
 #  B) TIMEOUT senaryosu
 # ---------------------------------------------------------------------------
-baslik "B) Ayakta ama sessiz drone -> 5 saniyede zaman asimi"
+section "B) Ayakta ama sessiz drone -> 5 saniyede zaman asimi"
 
-EK_COMPOSE=("$ONAYLAR_DIZINI/sessiz_drone.yml")
-suruyu_baslat
+EK_COMPOSE=("$OVERRIDES_DIR/sessiz_drone.yml")
+start_swarm
 
-dogrula_log gcs_node "yeni peer: id=3" 60 "GCS üç drone'u da keşfetti"
-dogrula_log gcs_node "\[gcs\] gorev teklif ediliyor.*online drone=3" 40 \
+verify_log gcs_node "yeni peer: id=3" 60 "GCS üç drone'u da keşfetti"
+verify_log gcs_node "\[gcs\] gorev teklif ediliyor.*online drone=3" 40 \
     "Sessiz drone da ONLINE sayıldı (oy verecekler listesinde)"
 
-dogrula_log drone_striker_2 "ARIZA SIMULASYONU" 30 \
+verify_log drone_striker_2 "ARIZA SIMULASYONU" 30 \
     "Sessiz drone oy vermiyor"
-dogrula_log drone_scout "\[consensus\] oy veriliyor tx=1 vote=ACK" 30 \
+verify_log drone_scout "\[consensus\] oy veriliyor tx=1 vote=ACK" 30 \
     "Diğer drone'lar ACK verdi"
 
-dogrula_log gcs_node "\[consensus\] sonuc tx=1 ABORTED_TIMEOUT" 40 \
+verify_log gcs_node "\[consensus\] sonuc tx=1 ABORTED_TIMEOUT" 40 \
     "5 saniye sonunda oylama zaman aşımıyla iptal oldu"
-dogrula_log gcs_node "\[gcs\] gorev IPTAL edildi task_id=1" 20 \
+verify_log gcs_node "\[gcs\] gorev IPTAL edildi task_id=1" 20 \
     "GCS görevi iptal etti"
-dogrula_log_yok gcs_node "gorev emri yayinlandi task_id=1" 2 \
+verify_log_absent gcs_node "gorev emri yayinlandi task_id=1" 2 \
     "Görev emri YAYINLANMADI"
 
-baslik "Iptal sonrasi suru IdleTask'a dondu"
-dogrula_log gcs_node "\[task\] gecis: CONSENSUS -> IDLE" 20 \
+section "Iptal sonrasi suru IdleTask'a dondu"
+verify_log gcs_node "\[task\] gecis: CONSENSUS -> IDLE" 20 \
     "GCS ConsensusTask'tan IdleTask'a döndü"
-dogrula_log_yok drone_scout "SCOUT_SEARCH" 2 \
+verify_log_absent drone_scout "SCOUT_SEARCH" 2 \
     "Gözcü göreve BAŞLAMADI (emir hiç yayınlanmadı)"
 
-sonucu_bildir
+report_result

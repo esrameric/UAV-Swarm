@@ -1,8 +1,8 @@
-// IdleTask — kuyruk boşaldığında düşülen varsayılan görev.
+// IdleTask — queue boşaldığında düşülen varsayılan görev.
 //
 // HİÇBİR ZAMAN BİTMEZ: is_finished() daima false döner. Sürünün "boşta
 // bekleme" hâlidir; yeni bir görev emri geldiğinde Task Engine bu task'ı
-// kuyruktan çıkarıp yerine yenisini koyar.
+// queue'dan çıkarıp yerine yenisini koyar.
 #pragma once
 
 #include "swarm/drone_state.hpp"
@@ -15,7 +15,7 @@ class IdleTask : public Task
 public:
     // Referans üye tutabilmek için durum dışarıdan verilir. Task, DroneState'i
     // SAHİPLENMEZ — yalnızca üzerinde çalışır.
-    explicit IdleTask(DroneState& durum);
+    explicit IdleTask(DroneState& state);
 
     void on_enter(TimePoint now) override;
     void run(TimePoint now) override;
@@ -28,7 +28,7 @@ private:
     // Burada yapılan değişiklik dışarıdaki asıl DroneState'e yansır.
     // Referans üyeler kurucu başlatma listesinde bağlanmak ZORUNDADIR ve
     // sonradan başka bir nesneye yeniden bağlanamaz.
-    DroneState& durum_;
+    DroneState& state_;
 };
 
 }  // namespace swarm

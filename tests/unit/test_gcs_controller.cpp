@@ -20,321 +20,321 @@ namespace {
 
 using namespace std::chrono_literals;
 
-const swarm::TimePoint BASLANGIC{};
+const swarm::TimePoint START{};
 
 // GCS kimliğiyle hazırlanmış, temiz bir SwarmManager.
-swarm::SwarmManager& gcs_olarak_hazirla()
+swarm::SwarmManager& prepare_as_gcs()
 {
-    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
+    swarm::SwarmManager& manager = swarm::SwarmManager::get_instance();
 
     swarm::SwarmConfig config;
     config.drone_id = 0;
     config.node_type = swarm::NodeType::GCS;
-    yonetici.init(config);
-    yonetici.set_consensus_publisher(nullptr);
-    yonetici.set_task_allocation_publisher(nullptr);
+    manager.init(config);
+    manager.set_consensus_publisher(nullptr);
+    manager.set_task_allocation_publisher(nullptr);
 
-    return yonetici;
+    return manager;
 }
 
-swarm::Heartbeat drone_heartbeat(uint8_t drone_id, swarm::DroneRole rol)
+swarm::Heartbeat drone_heartbeat(uint8_t drone_id, swarm::DroneRole role)
 {
-    swarm::Heartbeat kalp_atisi;
-    kalp_atisi.drone_id(drone_id);
-    kalp_atisi.node_type(swarm::NodeType::DRONE);
-    kalp_atisi.role(rol);
-    kalp_atisi.current_task(swarm::TaskType::IDLE);
-    return kalp_atisi;
+    swarm::Heartbeat heartbeat;
+    heartbeat.drone_id(drone_id);
+    heartbeat.node_type(swarm::NodeType::DRONE);
+    heartbeat.role(role);
+    heartbeat.current_task(swarm::TaskType::IDLE);
+    return heartbeat;
 }
 
-// Bir drone'un oyunu komut kuyruğuna koyar (ağdan gelmiş gibi).
-void oy_gonder(swarm::SwarmManager& yonetici,
+// Bir drone'un oyunu komut queue'suna koyar (ağdan gelmiş gibi).
+void send_vote(swarm::SwarmManager& manager,
                uint32_t transaction_id,
                uint8_t drone_id,
-               swarm::Vote oy)
+               swarm::Vote vote)
 {
-    swarm::Consensus mesaj;
-    mesaj.transaction_id(transaction_id);
-    mesaj.sender_id(drone_id);
-    mesaj.vote(oy);
-    yonetici.add_command(swarm::Command::consensus_oyu(mesaj));
+    swarm::Consensus message;
+    message.transaction_id(transaction_id);
+    message.sender_id(drone_id);
+    message.vote(vote);
+    manager.add_command(swarm::Command::consensus_vote(message));
 }
 
 // Üç drone'u ONLINE yapar (1 Scout + 2 Striker — Bölüm 3.1'deki sürü).
-void suruyu_ayaga_kaldir(swarm::SwarmManager& yonetici)
+void bring_up_swarm(swarm::SwarmManager& manager)
 {
-    yonetici.on_heartbeat_received(drone_heartbeat(1, swarm::DroneRole::SCOUT), BASLANGIC);
-    yonetici.on_heartbeat_received(drone_heartbeat(2, swarm::DroneRole::STRIKER), BASLANGIC);
-    yonetici.on_heartbeat_received(drone_heartbeat(3, swarm::DroneRole::STRIKER), BASLANGIC);
+    manager.on_heartbeat_received(drone_heartbeat(1, swarm::DroneRole::SCOUT), START);
+    manager.on_heartbeat_received(drone_heartbeat(2, swarm::DroneRole::STRIKER), START);
+    manager.on_heartbeat_received(drone_heartbeat(3, swarm::DroneRole::STRIKER), START);
 }
 
 }  // namespace
 
 TEST(GcsController, BaslangictaBosta)
 {
-    swarm::SwarmManager& yonetici = gcs_olarak_hazirla();
-    const swarm::GcsController gcs{yonetici};
+    swarm::SwarmManager& manager = prepare_as_gcs();
+    const swarm::GcsController gcs{manager};
 
-    EXPECT_EQ(gcs.durum(), swarm::GcsController::Durum::BOSTA);
+    EXPECT_EQ(gcs.state(), swarm::GcsController::State::IDLE);
 }
 
 TEST(GcsController, TeklifYayinlanirVeOylamayaGecilir)
 {
-    swarm::SwarmManager& yonetici = gcs_olarak_hazirla();
-    suruyu_ayaga_kaldir(yonetici);
+    swarm::SwarmManager& manager = prepare_as_gcs();
+    bring_up_swarm(manager);
 
     // Yayınlanan consensus mesajlarını yakalıyoruz.
-    std::vector<swarm::Consensus> yayinlananlar;
-    yonetici.set_consensus_publisher(
-            [&yayinlananlar](const swarm::Consensus& mesaj) {
-                yayinlananlar.push_back(mesaj);
+    std::vector<swarm::Consensus> received_messages;
+    manager.set_consensus_publisher(
+            [&received_messages](const swarm::Consensus& message) {
+                received_messages.push_back(message);
             });
 
-    swarm::GcsController gcs{yonetici};
-    const uint32_t islem_no = gcs.gorev_teklif_et(
-            swarm::DroneRole::STRIKER, 100.0, 50.0, BASLANGIC);
+    swarm::GcsController gcs{manager};
+    const uint32_t transaction_no = gcs.propose_task(
+            swarm::DroneRole::STRIKER, 100.0, 50.0, START);
 
-    EXPECT_EQ(gcs.durum(), swarm::GcsController::Durum::OYLAMA);
-    ASSERT_EQ(yayinlananlar.size(), 1u);
+    EXPECT_EQ(gcs.state(), swarm::GcsController::State::VOTING);
+    ASSERT_EQ(received_messages.size(), 1u);
 
     // TEKLİF mesajının işareti: vote alanı PENDING.
-    EXPECT_EQ(yayinlananlar[0].vote(), swarm::Vote::PENDING);
-    EXPECT_EQ(yayinlananlar[0].transaction_id(), islem_no);
-    EXPECT_EQ(yayinlananlar[0].sender_id(), 0u);
+    EXPECT_EQ(received_messages[0].vote(), swarm::Vote::PENDING);
+    EXPECT_EQ(received_messages[0].transaction_id(), transaction_no);
+    EXPECT_EQ(received_messages[0].sender_id(), 0u);
 
-    yonetici.set_consensus_publisher(nullptr);
+    manager.set_consensus_publisher(nullptr);
 }
 
 TEST(GcsController, TeklifAnindaGorevEmriYayinlanmaz)
 {
     // Emir ancak oybirliğinden SONRA yayınlanır.
-    swarm::SwarmManager& yonetici = gcs_olarak_hazirla();
-    suruyu_ayaga_kaldir(yonetici);
+    swarm::SwarmManager& manager = prepare_as_gcs();
+    bring_up_swarm(manager);
 
-    int yayinlanan_emir_sayisi = 0;
-    yonetici.set_task_allocation_publisher(
-            [&yayinlanan_emir_sayisi](const swarm::TaskAllocation&) {
-                ++yayinlanan_emir_sayisi;
+    int published_order_count = 0;
+    manager.set_task_allocation_publisher(
+            [&published_order_count](const swarm::TaskAllocation&) {
+                ++published_order_count;
             });
 
-    swarm::GcsController gcs{yonetici};
-    gcs.gorev_teklif_et(swarm::DroneRole::SCOUT, 10.0, 10.0, BASLANGIC);
+    swarm::GcsController gcs{manager};
+    gcs.propose_task(swarm::DroneRole::SCOUT, 10.0, 10.0, START);
 
-    EXPECT_EQ(yayinlanan_emir_sayisi, 0);
+    EXPECT_EQ(published_order_count, 0);
 
-    yonetici.set_task_allocation_publisher(nullptr);
+    manager.set_task_allocation_publisher(nullptr);
 }
 
 TEST(GcsController, OybirligindeGorevEmriYayinlanir)
 {
-    swarm::SwarmManager& yonetici = gcs_olarak_hazirla();
-    suruyu_ayaga_kaldir(yonetici);
+    swarm::SwarmManager& manager = prepare_as_gcs();
+    bring_up_swarm(manager);
 
-    std::vector<swarm::TaskAllocation> yayinlanan_emirler;
-    yonetici.set_task_allocation_publisher(
-            [&yayinlanan_emirler](const swarm::TaskAllocation& emir) {
-                yayinlanan_emirler.push_back(emir);
+    std::vector<swarm::TaskAllocation> published_orders;
+    manager.set_task_allocation_publisher(
+            [&published_orders](const swarm::TaskAllocation& order) {
+                published_orders.push_back(order);
             });
 
-    swarm::GcsController gcs{yonetici};
-    const uint32_t islem_no = gcs.gorev_teklif_et(
-            swarm::DroneRole::STRIKER, 250.0, -75.0, BASLANGIC);
+    swarm::GcsController gcs{manager};
+    const uint32_t transaction_no = gcs.propose_task(
+            swarm::DroneRole::STRIKER, 250.0, -75.0, START);
 
     // Oylama başlasın.
-    yonetici.task_engine_adimi(BASLANGIC);
+    manager.task_engine_step(START);
 
     // Üç drone da ACK veriyor.
-    oy_gonder(yonetici, islem_no, 1, swarm::Vote::ACK);
-    oy_gonder(yonetici, islem_no, 2, swarm::Vote::ACK);
-    oy_gonder(yonetici, islem_no, 3, swarm::Vote::ACK);
-    yonetici.task_engine_adimi(BASLANGIC + 100ms);
+    send_vote(manager, transaction_no, 1, swarm::Vote::ACK);
+    send_vote(manager, transaction_no, 2, swarm::Vote::ACK);
+    send_vote(manager, transaction_no, 3, swarm::Vote::ACK);
+    manager.task_engine_step(START + 100ms);
 
-    gcs.adim(BASLANGIC + 100ms);
+    gcs.step(START + 100ms);
 
-    EXPECT_EQ(gcs.durum(), swarm::GcsController::Durum::GOREV_YAYINLANDI);
-    ASSERT_EQ(yayinlanan_emirler.size(), 1u);
-    EXPECT_EQ(yayinlanan_emirler[0].task_id(), islem_no);
-    EXPECT_EQ(yayinlanan_emirler[0].target_role(), swarm::DroneRole::STRIKER);
-    EXPECT_DOUBLE_EQ(yayinlanan_emirler[0].target_x(), 250.0);
-    EXPECT_DOUBLE_EQ(yayinlanan_emirler[0].target_y(), -75.0);
+    EXPECT_EQ(gcs.state(), swarm::GcsController::State::TASK_PUBLISHED);
+    ASSERT_EQ(published_orders.size(), 1u);
+    EXPECT_EQ(published_orders[0].task_id(), transaction_no);
+    EXPECT_EQ(published_orders[0].target_role(), swarm::DroneRole::STRIKER);
+    EXPECT_DOUBLE_EQ(published_orders[0].target_x(), 250.0);
+    EXPECT_DOUBLE_EQ(published_orders[0].target_y(), -75.0);
 
-    yonetici.set_task_allocation_publisher(nullptr);
+    manager.set_task_allocation_publisher(nullptr);
 }
 
 TEST(GcsController, TekNackGoreviIptalEderVeEmirYayinlanmaz)
 {
-    swarm::SwarmManager& yonetici = gcs_olarak_hazirla();
-    suruyu_ayaga_kaldir(yonetici);
+    swarm::SwarmManager& manager = prepare_as_gcs();
+    bring_up_swarm(manager);
 
-    int yayinlanan_emir_sayisi = 0;
-    yonetici.set_task_allocation_publisher(
-            [&yayinlanan_emir_sayisi](const swarm::TaskAllocation&) {
-                ++yayinlanan_emir_sayisi;
+    int published_order_count = 0;
+    manager.set_task_allocation_publisher(
+            [&published_order_count](const swarm::TaskAllocation&) {
+                ++published_order_count;
             });
 
-    swarm::GcsController gcs{yonetici};
-    const uint32_t islem_no = gcs.gorev_teklif_et(
-            swarm::DroneRole::SCOUT, 10.0, 10.0, BASLANGIC);
+    swarm::GcsController gcs{manager};
+    const uint32_t transaction_no = gcs.propose_task(
+            swarm::DroneRole::SCOUT, 10.0, 10.0, START);
 
-    yonetici.task_engine_adimi(BASLANGIC);
+    manager.task_engine_step(START);
 
-    oy_gonder(yonetici, islem_no, 1, swarm::Vote::ACK);
-    oy_gonder(yonetici, islem_no, 2, swarm::Vote::NACK);   // biri hayır diyor
-    yonetici.task_engine_adimi(BASLANGIC + 100ms);
+    send_vote(manager, transaction_no, 1, swarm::Vote::ACK);
+    send_vote(manager, transaction_no, 2, swarm::Vote::NACK);   // biri hayır diyor
+    manager.task_engine_step(START + 100ms);
 
-    gcs.adim(BASLANGIC + 100ms);
+    gcs.step(START + 100ms);
 
-    EXPECT_EQ(gcs.durum(), swarm::GcsController::Durum::IPTAL);
-    EXPECT_EQ(yayinlanan_emir_sayisi, 0);
+    EXPECT_EQ(gcs.state(), swarm::GcsController::State::CANCELLED);
+    EXPECT_EQ(published_order_count, 0);
 
-    yonetici.set_task_allocation_publisher(nullptr);
+    manager.set_task_allocation_publisher(nullptr);
 }
 
 TEST(GcsController, CevapsizDroneVarsaBesSaniyeSonundaIptal)
 {
     // Bölüm 3.6: 5 saniye içinde tam ACK sağlanamazsa görev iptal edilir.
-    swarm::SwarmManager& yonetici = gcs_olarak_hazirla();
-    suruyu_ayaga_kaldir(yonetici);
+    swarm::SwarmManager& manager = prepare_as_gcs();
+    bring_up_swarm(manager);
 
-    int yayinlanan_emir_sayisi = 0;
-    yonetici.set_task_allocation_publisher(
-            [&yayinlanan_emir_sayisi](const swarm::TaskAllocation&) {
-                ++yayinlanan_emir_sayisi;
+    int published_order_count = 0;
+    manager.set_task_allocation_publisher(
+            [&published_order_count](const swarm::TaskAllocation&) {
+                ++published_order_count;
             });
 
-    swarm::GcsController gcs{yonetici};
-    const uint32_t islem_no = gcs.gorev_teklif_et(
-            swarm::DroneRole::SCOUT, 10.0, 10.0, BASLANGIC);
+    swarm::GcsController gcs{manager};
+    const uint32_t transaction_no = gcs.propose_task(
+            swarm::DroneRole::SCOUT, 10.0, 10.0, START);
 
-    yonetici.task_engine_adimi(BASLANGIC);
+    manager.task_engine_step(START);
 
     // Yalnızca iki drone cevap veriyor; üçüncüsü sessiz.
-    oy_gonder(yonetici, islem_no, 1, swarm::Vote::ACK);
-    oy_gonder(yonetici, islem_no, 2, swarm::Vote::ACK);
-    yonetici.task_engine_adimi(BASLANGIC + 100ms);
-    gcs.adim(BASLANGIC + 100ms);
-    ASSERT_EQ(gcs.durum(), swarm::GcsController::Durum::OYLAMA);
+    send_vote(manager, transaction_no, 1, swarm::Vote::ACK);
+    send_vote(manager, transaction_no, 2, swarm::Vote::ACK);
+    manager.task_engine_step(START + 100ms);
+    gcs.step(START + 100ms);
+    ASSERT_EQ(gcs.state(), swarm::GcsController::State::VOTING);
 
     // 5 saniye doluyor.
-    yonetici.task_engine_adimi(BASLANGIC + 5s);
-    gcs.adim(BASLANGIC + 5s);
+    manager.task_engine_step(START + 5s);
+    gcs.step(START + 5s);
 
-    EXPECT_EQ(gcs.durum(), swarm::GcsController::Durum::IPTAL);
-    EXPECT_EQ(yayinlanan_emir_sayisi, 0);
-    EXPECT_TRUE(yonetici.last_consensus_result().timeout_ile_iptal);
+    EXPECT_EQ(gcs.state(), swarm::GcsController::State::CANCELLED);
+    EXPECT_EQ(published_order_count, 0);
+    EXPECT_TRUE(manager.last_consensus_result().cancelled_by_timeout);
 
-    yonetici.set_task_allocation_publisher(nullptr);
+    manager.set_task_allocation_publisher(nullptr);
 }
 
 TEST(GcsController, HicDroneYokkenTeklifAninaGecer)
 {
     // Sürüde hiç drone yoksa oy bekleyecek kimse de yok: oylama anında
     // COMMITTED olur ve emir yayınlanır (V16).
-    swarm::SwarmManager& yonetici = gcs_olarak_hazirla();
+    swarm::SwarmManager& manager = prepare_as_gcs();
 
-    int yayinlanan_emir_sayisi = 0;
-    yonetici.set_task_allocation_publisher(
-            [&yayinlanan_emir_sayisi](const swarm::TaskAllocation&) {
-                ++yayinlanan_emir_sayisi;
+    int published_order_count = 0;
+    manager.set_task_allocation_publisher(
+            [&published_order_count](const swarm::TaskAllocation&) {
+                ++published_order_count;
             });
 
-    swarm::GcsController gcs{yonetici};
-    gcs.gorev_teklif_et(swarm::DroneRole::SCOUT, 5.0, 5.0, BASLANGIC);
+    swarm::GcsController gcs{manager};
+    gcs.propose_task(swarm::DroneRole::SCOUT, 5.0, 5.0, START);
 
-    yonetici.task_engine_adimi(BASLANGIC);
-    gcs.adim(BASLANGIC);
+    manager.task_engine_step(START);
+    gcs.step(START);
 
-    EXPECT_EQ(gcs.durum(), swarm::GcsController::Durum::GOREV_YAYINLANDI);
-    EXPECT_EQ(yayinlanan_emir_sayisi, 1);
+    EXPECT_EQ(gcs.state(), swarm::GcsController::State::TASK_PUBLISHED);
+    EXPECT_EQ(published_order_count, 1);
 
-    yonetici.set_task_allocation_publisher(nullptr);
+    manager.set_task_allocation_publisher(nullptr);
 }
 
 // --- Drone tarafı: teklife oy verme ----------------------------------------
 
 TEST(DroneOyVerme, TeklifAlanDroneAckYayinlar)
 {
-    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
+    swarm::SwarmManager& manager = swarm::SwarmManager::get_instance();
     swarm::SwarmConfig config;
     config.drone_id = 2;
     config.node_type = swarm::NodeType::DRONE;
     config.role = swarm::DroneRole::STRIKER;
-    yonetici.init(config);
+    manager.init(config);
 
-    std::vector<swarm::Consensus> yayinlananlar;
-    yonetici.set_consensus_publisher(
-            [&yayinlananlar](const swarm::Consensus& mesaj) {
-                yayinlananlar.push_back(mesaj);
+    std::vector<swarm::Consensus> received_messages;
+    manager.set_consensus_publisher(
+            [&received_messages](const swarm::Consensus& message) {
+                received_messages.push_back(message);
             });
 
     // GCS'ten teklif geliyor (vote = PENDING).
-    swarm::Consensus teklif;
-    teklif.transaction_id(55);
-    teklif.sender_id(0);
-    teklif.vote(swarm::Vote::PENDING);
-    yonetici.add_command(swarm::Command::consensus_oyu(teklif));
+    swarm::Consensus proposal;
+    proposal.transaction_id(55);
+    proposal.sender_id(0);
+    proposal.vote(swarm::Vote::PENDING);
+    manager.add_command(swarm::Command::consensus_vote(proposal));
 
-    yonetici.task_engine_adimi(BASLANGIC);
+    manager.task_engine_step(START);
 
-    ASSERT_EQ(yayinlananlar.size(), 1u);
-    EXPECT_EQ(yayinlananlar[0].transaction_id(), 55u);
-    EXPECT_EQ(yayinlananlar[0].sender_id(), 2u);
-    EXPECT_EQ(yayinlananlar[0].vote(), swarm::Vote::ACK);
+    ASSERT_EQ(received_messages.size(), 1u);
+    EXPECT_EQ(received_messages[0].transaction_id(), 55u);
+    EXPECT_EQ(received_messages[0].sender_id(), 2u);
+    EXPECT_EQ(received_messages[0].vote(), swarm::Vote::ACK);
 
-    yonetici.set_consensus_publisher(nullptr);
+    manager.set_consensus_publisher(nullptr);
 }
 
 TEST(DroneOyVerme, BataryasiKritikOlanDroneNackYayinlar)
 {
-    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
+    swarm::SwarmManager& manager = swarm::SwarmManager::get_instance();
     swarm::SwarmConfig config;
     config.drone_id = 3;
     config.node_type = swarm::NodeType::DRONE;
     config.role = swarm::DroneRole::STRIKER;
-    yonetici.init(config);
+    manager.init(config);
 
-    yonetici.drone_state().battery = 5;   // kritik
+    manager.drone_state().battery = 5;   // kritik
 
-    std::vector<swarm::Consensus> yayinlananlar;
-    yonetici.set_consensus_publisher(
-            [&yayinlananlar](const swarm::Consensus& mesaj) {
-                yayinlananlar.push_back(mesaj);
+    std::vector<swarm::Consensus> received_messages;
+    manager.set_consensus_publisher(
+            [&received_messages](const swarm::Consensus& message) {
+                received_messages.push_back(message);
             });
 
-    swarm::Consensus teklif;
-    teklif.transaction_id(56);
-    teklif.sender_id(0);
-    teklif.vote(swarm::Vote::PENDING);
-    yonetici.add_command(swarm::Command::consensus_oyu(teklif));
+    swarm::Consensus proposal;
+    proposal.transaction_id(56);
+    proposal.sender_id(0);
+    proposal.vote(swarm::Vote::PENDING);
+    manager.add_command(swarm::Command::consensus_vote(proposal));
 
-    yonetici.task_engine_adimi(BASLANGIC);
+    manager.task_engine_step(START);
 
-    ASSERT_EQ(yayinlananlar.size(), 1u);
-    EXPECT_EQ(yayinlananlar[0].vote(), swarm::Vote::NACK);
+    ASSERT_EQ(received_messages.size(), 1u);
+    EXPECT_EQ(received_messages[0].vote(), swarm::Vote::NACK);
 
-    yonetici.set_consensus_publisher(nullptr);
+    manager.set_consensus_publisher(nullptr);
 }
 
 TEST(DroneOyVerme, GcsKendiTeklifineOyVermez)
 {
     // GCS bir drone değildir; kendi teklifine oy üretmemeli.
-    swarm::SwarmManager& yonetici = gcs_olarak_hazirla();
+    swarm::SwarmManager& manager = prepare_as_gcs();
 
-    std::vector<swarm::Consensus> yayinlananlar;
-    yonetici.set_consensus_publisher(
-            [&yayinlananlar](const swarm::Consensus& mesaj) {
-                yayinlananlar.push_back(mesaj);
+    std::vector<swarm::Consensus> received_messages;
+    manager.set_consensus_publisher(
+            [&received_messages](const swarm::Consensus& message) {
+                received_messages.push_back(message);
             });
 
-    swarm::Consensus teklif;
-    teklif.transaction_id(57);
-    teklif.sender_id(9);   // başka bir düğümden gelmiş gibi
-    teklif.vote(swarm::Vote::PENDING);
-    yonetici.add_command(swarm::Command::consensus_oyu(teklif));
+    swarm::Consensus proposal;
+    proposal.transaction_id(57);
+    proposal.sender_id(9);   // başka bir düğümden gelmiş gibi
+    proposal.vote(swarm::Vote::PENDING);
+    manager.add_command(swarm::Command::consensus_vote(proposal));
 
-    yonetici.task_engine_adimi(BASLANGIC);
+    manager.task_engine_step(START);
 
-    EXPECT_TRUE(yayinlananlar.empty());
+    EXPECT_TRUE(received_messages.empty());
 
-    yonetici.set_consensus_publisher(nullptr);
+    manager.set_consensus_publisher(nullptr);
 }

@@ -2,43 +2,43 @@
 
 namespace swarm {
 
-LandingTask::LandingTask(DroneState& durum)
-    : durum_(durum)
+LandingTask::LandingTask(DroneState& state)
+    : state_(state)
 {
 }
 
 void LandingTask::on_enter(TimePoint now)
 {
-    son_calisma_ = now;
-    tamamlandi_ = false;
+    last_update_ = now;
+    finished_ = false;
 }
 
 void LandingTask::run(TimePoint now)
 {
     // duration<double>: farkı ondalıklı saniye olarak verir; mesafe
     // hesabında tam sayı bölmesi kaynaklı hata olmasın diye.
-    const double gecen_saniye =
-            std::chrono::duration<double>(now - son_calisma_).count();
-    son_calisma_ = now;
+    const double elapsed_seconds =
+            std::chrono::duration<double>(now - last_update_).count();
+    last_update_ = now;
 
-    if (durum_.z <= 0.0)
+    if (state_.z <= 0.0)
     {
-        durum_.z = 0.0;
-        durum_.hizi_sifirla();
-        tamamlandi_ = true;
+        state_.z = 0.0;
+        state_.reset_velocity();
+        finished_ = true;
         return;
     }
 
-    durum_.z -= INIS_HIZI_M_S * gecen_saniye;
-    durum_.vx = 0.0;
-    durum_.vy = 0.0;
-    durum_.vz = -INIS_HIZI_M_S;
+    state_.z -= DESCENT_SPEED_M_S * elapsed_seconds;
+    state_.vx = 0.0;
+    state_.vy = 0.0;
+    state_.vz = -DESCENT_SPEED_M_S;
 
-    if (durum_.z <= 0.0)
+    if (state_.z <= 0.0)
     {
-        durum_.z = 0.0;
-        durum_.hizi_sifirla();
-        tamamlandi_ = true;
+        state_.z = 0.0;
+        state_.reset_velocity();
+        finished_ = true;
     }
 }
 
@@ -48,7 +48,7 @@ void LandingTask::on_exit()
 
 bool LandingTask::is_finished() const
 {
-    return tamamlandi_;
+    return finished_;
 }
 
 TaskType LandingTask::get_type() const

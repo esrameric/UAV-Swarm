@@ -3,7 +3,7 @@
 //
 //  Bu bir Task DEĞİLDİR (Bölüm 3.3). Göreve karar veren bağımsız bir
 //  servistir: gelen TaskAllocation emrinin `target_role` alanına bakıp
-//  hangi child task'ın kuyruğa gireceğine karar verir.
+//  hangi child task'ın queue'ya gireceğine karar verir.
 //
 //    SCOUT   -> ScoutSearchTask   (alan taraması)
 //    STRIKER -> GoToTargetTask    (hedefe müdahale)
@@ -29,16 +29,16 @@ class TaskAllocationEngine
 public:
     // Bu emir bu düğümü ilgilendiriyor mu?
     // GCS'i hiçbir görev emri ilgilendirmez (GCS uçmaz, emri o verir).
-    static bool bu_dugumu_ilgilendiriyor(
-            const TaskAllocation& emir,
+    static bool concerns_this_node(
+            const TaskAllocation& order,
             const SwarmConfig& config);
 
     // Emre karşılık gelen görevi üretir.
     // Emir bu düğümü ilgilendirmiyorsa nullptr döner.
-    static std::unique_ptr<Task> gorev_uret(
-            const TaskAllocation& emir,
+    static std::unique_ptr<Task> create_task(
+            const TaskAllocation& order,
             const SwarmConfig& config,
-            DroneState& durum);
+            DroneState& state);
 };
 
 }  // namespace swarm

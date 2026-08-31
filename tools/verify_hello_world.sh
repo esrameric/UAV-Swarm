@@ -11,64 +11,64 @@
 
 set -uo pipefail
 
-BETIK_DIZINI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
-source "$BETIK_DIZINI/fastdds_env.sh"
+source "$SCRIPT_DIR/fastdds_env.sh"
 
-ORNEK_KAYNAK="$HOME/Fast-DDS/src/fastdds/examples/cpp/hello_world"
-ORNEK_SAYISI=10
+EXAMPLE_SOURCE="$HOME/Fast-DDS/src/fastdds/examples/cpp/hello_world"
+SAMPLE_COUNT=10
 
 echo "== Faz 0.3: Hello World pub/sub akış doğrulaması =="
 
-if [ ! -d "$ORNEK_KAYNAK" ]; then
-    echo "  [HATA] örnek kaynağı yok: $ORNEK_KAYNAK"
+if [ ! -d "$EXAMPLE_SOURCE" ]; then
+    echo "  [HATA] örnek kaynağı yok: $EXAMPLE_SOURCE"
     echo "SONUC: BASARISIZ"; exit 1
 fi
 
-GECICI="$(mktemp -d)"
+TEMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$GECICI"' EXIT
 
 echo "-- örnek derleniyor..."
-if ! cmake -S "$ORNEK_KAYNAK" -B "$GECICI/build" -DCMAKE_BUILD_TYPE=Release \
-        >"$GECICI/cmake.log" 2>&1; then
-    echo "  [HATA] cmake configure başarısız:"; tail -20 "$GECICI/cmake.log"
+if ! cmake -S "$EXAMPLE_SOURCE" -B "$TEMP_DIR/build" -DCMAKE_BUILD_TYPE=Release \
+        >"$TEMP_DIR/cmake.log" 2>&1; then
+    echo "  [HATA] cmake configure başarısız:"; tail -20 "$TEMP_DIR/cmake.log"
     echo "SONUC: BASARISIZ"; exit 1
 fi
-if ! cmake --build "$GECICI/build" -j3 >>"$GECICI/cmake.log" 2>&1; then
-    echo "  [HATA] derleme başarısız:"; tail -20 "$GECICI/cmake.log"
+if ! cmake --build "$TEMP_DIR/build" -j3 >>"$TEMP_DIR/cmake.log" 2>&1; then
+    echo "  [HATA] derleme başarısız:"; tail -20 "$TEMP_DIR/cmake.log"
     echo "SONUC: BASARISIZ"; exit 1
 fi
-UYGULAMA="$GECICI/build/hello_world"
-[ -x "$UYGULAMA" ] || { echo "  [HATA] $UYGULAMA üretilmedi"; echo "SONUC: BASARISIZ"; exit 1; }
+APP="$TEMP_DIR/build/hello_world"
+[ -x "$APP" ] || { echo "  [HATA] $APP üretilmedi"; echo "SONUC: BASARISIZ"; exit 1; }
 echo "  [OK]   örnek derlendi"
 
 # --- abone önce başlar -------------------------------------------------------
 # `&` komutu arka planda başlatır, `$!` onun süreç numarasını (PID) verir.
 echo "-- abone (subscriber) başlatılıyor"
-"$UYGULAMA" subscriber -s "$ORNEK_SAYISI" >"$GECICI/sub.log" 2>&1 &
-abone_pid=$!
+"$APP" subscriber -s "$SAMPLE_COUNT" >"$TEMP_DIR/sub.log" 2>&1 &
+subscriber_pid=$!
 
 sleep 2  # abonenin DDS discovery'yi tamamlaması için kısa pay
 
 echo "-- yayıncı (publisher) başlatılıyor"
-"$UYGULAMA" publisher -s "$ORNEK_SAYISI" >"$GECICI/pub.log" 2>&1
+"$APP" publisher -s "$SAMPLE_COUNT" >"$TEMP_DIR/pub.log" 2>&1
 echo "-- abonenin bitmesi bekleniyor"
-wait "$abone_pid"
+wait "$subscriber_pid"
 
-gonderilen="$(grep -c "SENT" "$GECICI/pub.log" 2>/dev/null || echo 0)"
-alinan="$(grep -c "RECEIVED" "$GECICI/sub.log" 2>/dev/null || echo 0)"
+sent="$(grep -c "SENT" "$TEMP_DIR/pub.log" 2>/dev/null || echo 0)"
+received="$(grep -c "RECEIVED" "$TEMP_DIR/sub.log" 2>/dev/null || echo 0)"
 
 echo
-echo "----- yayıncı logu (son 3) -----"; tail -3 "$GECICI/pub.log" | sed 's/^/  /'
-echo "----- abone logu (son 3) -----";   tail -3 "$GECICI/sub.log" | sed 's/^/  /'
+echo "----- yayıncı logu (son 3) -----"; tail -3 "$TEMP_DIR/pub.log" | sed 's/^/  /'
+echo "----- abone logu (son 3) -----";   tail -3 "$TEMP_DIR/sub.log" | sed 's/^/  /'
 echo "-------------------------------"
-echo "  gönderilen örnek: $gonderilen"
-echo "  alınan örnek:     $alinan"
+echo "  gönderilen örnek: $sent"
+echo "  alınan örnek:     $received"
 echo
 
-if [ "$gonderilen" -ge "$ORNEK_SAYISI" ] && [ "$alinan" -ge "$ORNEK_SAYISI" ]; then
+if [ "$sent" -ge "$SAMPLE_COUNT" ] && [ "$received" -ge "$SAMPLE_COUNT" ]; then
     echo "SONUC: BASARILI - Fast DDS pub/sub akışı çalışıyor"
     exit 0
 fi
-echo "SONUC: BASARISIZ - beklenen $ORNEK_SAYISI örnek alınamadı"
+echo "SONUC: BASARISIZ - beklenen $SAMPLE_COUNT örnek alınamadı"
 exit 1

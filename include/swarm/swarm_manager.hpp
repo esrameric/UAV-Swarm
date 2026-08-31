@@ -3,7 +3,7 @@
 //
 //  SINGLETON NEDİR? Bir sınıftan programda YALNIZCA BİR tane nesne olmasını
 //  garanti eden tasarım deseni. Erişim tek bir noktadan (`get_instance()`)
-//  yapılır. Burada gerekli çünkü peer table, komut kuyruğu ve görev kuyruğu
+//  yapılır. Burada gerekli çünkü peer table, komut queue'su ve görev queue'su
 //  tek bir gerçeğin kaydı olmalı: üç thread'in aynı tabloyu görmesi şart.
 //
 //  Singleton nasıl zorlanır?
@@ -15,7 +15,7 @@
 //  Neden `static` yerel değişken? C++11'den beri fonksiyon içindeki static
 //  değişkenlerin ilklenmesi THREAD-SAFE olmak zorundadır: iki thread aynı
 //  anda `get_instance()` çağırsa bile nesne yalnızca bir kez kurulur.
-//  Buna "Meyers Singleton" denir ve elle kilit yazmaktan daha güvenlidir.
+//  Buna "Meyers Singleton" denir ve elle lock yazmaktan daha güvenlidir.
 // ============================================================================
 
 //  THREAD-SAFETY (Bölüm 3.2)
@@ -24,7 +24,7 @@
 //    peer_table_    <- peer_mutex_     (Thread 1 yazar, Thread 3 okur)
 //    command_queue_ <- command_mutex_  (Thread 2 yazar, Thread 3 okur)
 //    task_queue_    <- KORUMA YOK, gerekmiyor: yalnızca Thread 3 dokunur.
-//                      Tek thread'in eriştiği veriye kilit koymak gereksiz
+//                      Tek thread'in eriştiği veriye lock koymak gereksiz
 //                      maliyet ve yanlış bir "burada yarış var" sinyalidir.
 #pragma once
 
@@ -117,15 +117,15 @@ public:
 
     // Bu düğümün kendi uçuş durumu. Hareket task'ları bunu günceller,
     // telemetri yayını buradan okur.
-    DroneState& drone_state() { return kendi_durumu_; }
-    const DroneState& drone_state() const { return kendi_durumu_; }
+    DroneState& drone_state() { return own_state_; }
+    const DroneState& drone_state() const { return own_state_; }
 
     // --- Consensus turu isteği (thread-safe) ---------------------------------
     //
     // Başka bir thread'den (GCS'in ana döngüsü) yeni bir oylama başlatmak
-    // için kullanılır. Görev kuyruğuna DOKUNMAZ; yalnızca bir istek bırakır.
-    // İsteği alıp kuyruğu düzenlemek Task Engine thread'inin işidir.
-    void request_consensus(uint32_t transaction_id, std::vector<uint8_t> oy_verenler);
+    // için kullanılır. Görev queue'suna DOKUNMAZ; yalnızca bir istek bırakır.
+    // İsteği alıp queue'yu düzenlemek Task Engine thread'inin işidir.
+    void request_consensus(uint32_t transaction_id, std::vector<uint8_t> voters);
 
     // --- Task Engine (Thread 3) ----------------------------------------------
 
@@ -137,13 +137,13 @@ public:
     //   1) check_emergency()
     //   2) bekleyen komutları işle
     //   3) aktif görevi ilerlet, bittiyse sıradakine geç
-    //   4) kuyruk boşaldıysa IdleTask'a düş
-    void task_engine_adimi(TimePoint now);
+    //   4) queue boşaldıysa IdleTask'a düş
+    void task_engine_step(TimePoint now);
 
-    // Komut kuyruğundaki her şeyi işler: consensus oylarını aktif
+    // Komut queue'sundaki her şeyi işler: consensus oylarını aktif
     // ConsensusTask'a iletir, görev emirlerini TaskAllocationEngine'e
-    // danışarak görev kuyruğuna dönüştürür.
-    void bekleyen_komutlari_isle(TimePoint now);
+    // danışarak görev queue'suna dönüştürür.
+    void process_pending_commands(TimePoint now);
 
     // Acil durum var mı? (Bölüm 3.2 — her turda ilk çalışan kontrol)
     //
@@ -152,9 +152,9 @@ public:
     //   2) Bir zamanlar duyduğumuz bir peer artık susuyor (kayıp düğüm).
     bool check_emergency(TimePoint now) const;
 
-    static constexpr uint8_t KRITIK_BATARYA_YUZDESI = 15;
+    static constexpr uint8_t CRITICAL_BATTERY_PERCENTAGE = 15;
 
-    // --- Ağ arayüzü (Thread 1 ve Faz 4'teki DDS okuyucuları) -----------------
+    // --- Ağ interface'i (Thread 1 ve Faz 4'teki DDS okuyucuları) -------------
 
     // Kendi durumunu (heartbeat + telemetri) yayınlar.
     void send_self_status(TimePoint now);
@@ -178,20 +178,20 @@ public:
     // std::function: "bir fonksiyonu değişkende saklamanın" yolu. Buraya
     // lambda, serbest fonksiyon veya üye fonksiyon bağlanabilir. Sayesinde
     // SwarmManager, DDS'i hiç tanımadan yayın yapabiliyor.
-    using HeartbeatYayinlayici = std::function<void(const Heartbeat&)>;
-    using TelemetriYayinlayici = std::function<void(const Telemetry&)>;
-    using ConsensusYayinlayici = std::function<void(const Consensus&)>;
-    using GorevEmriYayinlayici = std::function<void(const TaskAllocation&)>;
+    using HeartbeatPublisher = std::function<void(const Heartbeat&)>;
+    using TelemetryPublisher = std::function<void(const Telemetry&)>;
+    using ConsensusPublisher = std::function<void(const Consensus&)>;
+    using TaskOrderPublisher = std::function<void(const TaskAllocation&)>;
 
-    void set_heartbeat_publisher(HeartbeatYayinlayici yayinlayici);
-    void set_telemetry_publisher(TelemetriYayinlayici yayinlayici);
-    void set_consensus_publisher(ConsensusYayinlayici yayinlayici);
-    void set_task_allocation_publisher(GorevEmriYayinlayici yayinlayici);
+    void set_heartbeat_publisher(HeartbeatPublisher publisher);
+    void set_telemetry_publisher(TelemetryPublisher publisher);
+    void set_consensus_publisher(ConsensusPublisher publisher);
+    void set_task_allocation_publisher(TaskOrderPublisher publisher);
 
     // Reliable kanaldan mesaj yayınlar. Yayıncı bağlı değilse sessizce
     // hiçbir şey yapmaz.
-    void publish_consensus(const Consensus& mesaj);
-    void publish_task_allocation(const TaskAllocation& emir);
+    void publish_consensus(const Consensus& message);
+    void publish_task_allocation(const TaskAllocation& order);
 
     // --- Sürü görüntüsü ------------------------------------------------------
 
@@ -200,33 +200,33 @@ public:
 
     // --- Son tamamlanan oylamanın sonucu -------------------------------------
     //
-    // Task Engine bir ConsensusTask'ı kuyruktan çıkarırken sonucunu buraya
+    // Task Engine bir ConsensusTask'ı queue'dan çıkarırken sonucunu buraya
     // yazar. Böylece GCS (veya başka bir gözlemci), silinmiş bir task'a
     // işaretçi tutmadan sonucu öğrenebilir.
-    struct ConsensusSonucu
+    struct ConsensusOutcome
     {
-        bool gecerli = false;          // hiç oylama tamamlandı mı?
+        bool valid = false;          // hiç oylama tamamlandı mı?
         uint32_t transaction_id = 0;
-        ConsensusResult sonuc = ConsensusResult::PENDING;
-        bool timeout_ile_iptal = false;
+        ConsensusResult result = ConsensusResult::PENDING;
+        bool cancelled_by_timeout = false;
     };
 
-    ConsensusSonucu last_consensus_result() const { return son_consensus_sonucu_; }
+    ConsensusOutcome last_consensus_result() const { return last_consensus_outcome_; }
 
     // Aktif görevin tipi. `atomic` olduğu için başka thread'lerden (örn.
     // ana thread'in log döngüsü) güvenle okunabilir — task_queue_'nun
     // kendisine yalnızca Task Engine thread'i dokunabilir.
-    TaskType current_task_type() const { return aktif_gorev_tipi_; }
+    TaskType current_task_type() const { return active_task_type_; }
 
-    // --- Komut kuyruğu (command_mutex_ korumalı) -----------------------------
+    // --- Komut queue'su (command_mutex_ korumalı) -----------------------------
 
-    // Ağdan gelen bir komutu kuyruğa ekler. Thread 2 çağırır.
-    void add_command(const Command& komut);
+    // Ağdan gelen bir komutu queue'ya ekler. Thread 2 çağırır.
+    void add_command(const Command& command);
 
-    // Kuyruğun başındaki komutu alır ve kuyruktan çıkarır.
-    // Dönüş: kuyruk boşsa false (bu durumda `cikti` değiştirilmez).
+    // Queue'nun başındaki komutu alır ve queue'dan çıkarır.
+    // Dönüş: queue boşsa false (bu durumda `output` değiştirilmez).
     // Thread 3 çağırır.
-    bool pop_command(Command& cikti);
+    bool pop_command(Command& output);
 
     std::size_t command_queue_size() const;
 
@@ -235,25 +235,25 @@ public:
     std::size_t peer_count() const;
     std::size_t online_peer_count() const;
 
-    // --- Görev kuyruğu (yalnızca Thread 3) -----------------------------------
+    // --- Görev queue'su (yalnızca Thread 3) -----------------------------------
     //
     // DİKKAT: Aşağıdaki üç fonksiyon KİLİTSİZDİR. Yalnızca Task Engine
     // thread'inin içinden ya da run() çağrılmadan önce (kurulum ve testler)
     // güvenle kullanılabilir. Çalışan bir düğümde başka bir thread'den
-    // çağrılırlarsa veri yarışı olur — nitekim GCS'in görev başlatması
+    // çağrılırlarsa data race olur — nitekim GCS'in görev başlatması
     // bu yüzden request_consensus() üzerinden yapılıyor.
 
-    // Kuyruğun SONUNA bir görev ekler.
-    void push_task(std::unique_ptr<Task> gorev);
+    // Queue'nun SONUNA bir görev ekler.
+    void push_task(std::unique_ptr<Task> task);
 
     std::size_t task_queue_size() const;
 
-    // Kuyruğun başındaki (aktif) görev. Kuyruk boşsa nullptr.
-    // Sahiplik devredilmez: görev kuyruğa aittir.
+    // Queue'nun başındaki (aktif) görev. Queue boşsa nullptr.
+    // Sahiplik devredilmez: görev queue'ya aittir.
     Task* current_task();
 
     // Bekleyen TÜM görevleri iptal eder. Consensus ABORTED bittiğinde
-    // (Bölüm 2/3.6) sürünün IdleTask'a dönebilmesi için kuyruğun
+    // (Bölüm 2/3.6) sürünün IdleTask'a dönebilmesi için queue'nun
     // boşaltılması gerekir.
     void clear_task_queue();
 
@@ -263,115 +263,115 @@ private:
     SwarmManager() = default;
     ~SwarmManager() = default;
 
-    // Acil durumda kuyruğu boşaltıp FailSafe -> Landing -> Idle dizisini
+    // Acil durumda queue'yu boşaltıp FailSafe -> Landing -> Idle dizisini
     // yerleştirir. Yalnızca acil duruma İLK girişte çalışır.
-    void acil_durum_gorevlerini_yerlestir(TimePoint now);
+    void place_emergency_tasks(TimePoint now);
 
     // Bir drone, GCS'ten gelen consensus TEKLİFİNE kendi oyunu üretip
     // yayınlar. Karar ölçütü şimdilik batarya seviyesidir.
-    void teklife_oy_ver(const Consensus& teklif);
+    void vote_on_proposal(const Consensus& proposal);
 
     // Aktif görev tipini kaydeder ve değiştiyse log'a yazar.
-    void gorev_tipini_kaydet(TaskType yeni_tip);
+    void record_task_type(TaskType new_type);
 
-    // Kuyruğu çalıştırmaya hazır hâle getirir: boşsa IdleTask koyar, sonra
+    // Queue'yu çalıştırmaya hazır hâle getirir: boşsa IdleTask koyar, sonra
     // baştaki görev henüz başlatılmadıysa başlatır.
-    void kuyrugu_hazirla(TimePoint now);
+    void prepare_queue(TimePoint now);
 
-    // Kuyruğun başındaki görevi başlatır: on_enter() çağırır, bayrağı kurar
+    // Queue'nun başındaki görevi başlatır: on_enter() çağırır, bayrağı kurar
     // ve tipi kaydeder. Bu üçü HER ZAMAN birlikte yapılmalı; ayrı ayrı
     // yazıldıklarında biri unutulabiliyor.
-    void aktif_gorevi_baslat(TimePoint now);
+    void start_active_task(TimePoint now);
 
-    // Bekleyen consensus isteği varsa kuyruğu ona göre düzenler.
+    // Bekleyen consensus isteği varsa queue'yu ona göre düzenler.
     // Yalnızca Task Engine thread'inden çağrılır.
-    void bekleyen_consensus_istegini_uygula();
+    void apply_pending_consensus_request();
 
     // --- Thread gövdeleri ----------------------------------------------------
 
-    void drone_list_dongusu();       // Thread 1 — heartbeat yayını + peer takibi
-    void komut_dongusu();            // Thread 2 — gelen komutların işlenmesi
-    void komut_yurutme_dongusu();    // Thread 3 — Task Engine
+    void drone_list_loop();       // Thread 1 — heartbeat yayını + peer takibi
+    void command_loop();            // Thread 2 — gelen komutların işlenmesi
+    void task_engine_loop();    // Thread 3 — Task Engine
 
 
     // --- Paylaşılan durum ----------------------------------------------------
 
     // std::mutex ("mutual exclusion" = karşılıklı dışlama): aynı anda
-    // yalnızca bir thread'in korunan veriye dokunmasını sağlayan kilit.
-    // Kilit alınmadan yapılan eşzamanlı okuma/yazma "veri yarışı" (data race)
-    // yaratır ve C++'ta TANIMSIZ DAVRANIŞtır — bazen çalışır, bazen sessizce
+    // yalnızca bir thread'in korunan veriye dokunmasını sağlayan lock.
+    // Kilit alınmadan yapılan eşzamanlı okuma/yazma bir "data race" yaratır
+    // ve C++'ta TANIMSIZ DAVRANIŞtır — bazen çalışır, bazen sessizce
     // yanlış sonuç verir.
     //
     // `mutable`: bu üye, `const` bir üye fonksiyon içinde bile
     // değiştirilebilir. Gerekli, çünkü peer_count() const'tur ama okumak
-    // için yine de kilidi kilitlemek zorundadır.
+    // için yine de lock'u almak zorundadır.
     mutable std::mutex peer_mutex_;
     PeerManager peer_table_;
 
     mutable std::mutex command_mutex_;
-    // std::deque: iki uçtan da hızlı ekleme/çıkarma yapılabilen kuyruk.
+    // std::deque: iki uçtan da hızlı ekleme/çıkarma yapılabilen queue.
     // Komutlar sona eklenir, baştan işlenir (FIFO).
     std::deque<Command> command_queue_;
 
     // Yalnızca Thread 3 (Task Engine) dokunduğu için mutex'i yok.
-    // Görevler unique_ptr ile tutulur: kuyruktan çıkan görev otomatik silinir.
+    // Görevler unique_ptr ile tutulur: queue'dan çıkan görev otomatik silinir.
     std::deque<std::unique_ptr<Task>> task_queue_;
 
-    // Kuyruğun başındaki göreve on_enter() çağrıldı mı? Bir görev aktif
+    // Queue'nun başındaki göreve on_enter() çağrıldı mı? Bir görev aktif
     // olduğunda on_enter'ı tam bir kez çağırmak için gerekli.
-    bool aktif_gorev_baslatildi_ = false;
+    bool active_task_started_ = false;
 
     // Acil duruma girildi mi? Acil durum görevlerinin her turda tekrar
-    // tekrar kuyruğa eklenmesini engeller.
-    bool acil_durumda_ = false;
+    // tekrar queue'ya eklenmesini engeller.
+    bool in_emergency_ = false;
 
     // Kendi telemetri sayacımız. HİÇ SIFIRLANMAZ (Bölüm 3.5): süreç
     // kapanınca RAM'deki değer doğal olarak gider, yeniden başlayınca
     // 0'dan devam eder. Alıcı taraf bunu OFFLINE->ONLINE geçişinde
     // last_seen_seq'i sıfırlayarak karşılar.
-    uint32_t telemetri_seq_num_ = 0;
+    uint32_t telemetry_seq_num_ = 0;
 
-    HeartbeatYayinlayici heartbeat_yayinlayici_;
-    TelemetriYayinlayici telemetri_yayinlayici_;
-    ConsensusYayinlayici consensus_yayinlayici_;
-    GorevEmriYayinlayici gorev_emri_yayinlayici_;
+    HeartbeatPublisher heartbeat_publisher_;
+    TelemetryPublisher telemetry_publisher_;
+    ConsensusPublisher consensus_publisher_;
+    TaskOrderPublisher task_order_publisher_;
 
-    ConsensusSonucu son_consensus_sonucu_{};
+    ConsensusOutcome last_consensus_outcome_{};
 
-    std::atomic<TaskType> aktif_gorev_tipi_{TaskType::INIT};
+    std::atomic<TaskType> active_task_type_{TaskType::INIT};
 
     // Bekleyen consensus isteği (istek_mutex_ korumalı).
-    struct ConsensusIstegi
+    struct ConsensusRequest
     {
-        bool var = false;
+        bool present = false;
         uint32_t transaction_id = 0;
-        std::vector<uint8_t> oy_verenler;
+        std::vector<uint8_t> voters;
     };
-    mutable std::mutex istek_mutex_;
-    ConsensusIstegi bekleyen_consensus_istegi_;
+    mutable std::mutex request_mutex_;
+    ConsensusRequest pending_consensus_request_;
 
     // --- Kimlik ve kendi durumu ----------------------------------------------
 
     SwarmConfig config_{};
-    DroneState kendi_durumu_{};
+    DroneState own_state_{};
 
     // --- Thread yönetimi -----------------------------------------------------
 
-    // std::atomic<bool>: birden fazla thread'in kilitsiz, GÜVENLE okuyup
-    // yazabildiği bayrak. Sıradan bir `bool` burada veri yarışı olurdu:
+    // std::atomic<bool>: birden fazla thread'in lock kullanmadan, GÜVENLE okuyup
+    // yazabildiği bayrak. Sıradan bir `bool` burada data race olurdu:
     // derleyici onu bir yazmaca (register) alıp döngüden çıkarabilir ve
     // thread durma işaretini hiç görmeyebilirdi.
-    std::atomic<bool> calisiyor_{false};
+    std::atomic<bool> running_{false};
 
-    std::thread drone_list_threadi_;
-    std::thread komut_threadi_;
-    std::thread komut_yurutme_threadi_;
+    std::thread drone_list_thread_;
+    std::thread command_thread_;
+    std::thread task_engine_thread_;
 
     // Thread döngülerinin tur arası bekleme süreleri.
     // Heartbeat ~10 Hz (Bölüm 3.4), diğerleri daha sık dönebilir.
-    static constexpr std::chrono::milliseconds HEARTBEAT_PERIYODU{100};
-    static constexpr std::chrono::milliseconds KOMUT_PERIYODU{20};
-    static constexpr std::chrono::milliseconds TASK_ENGINE_PERIYODU{20};
+    static constexpr std::chrono::milliseconds HEARTBEAT_PERIOD{100};
+    static constexpr std::chrono::milliseconds COMMAND_PERIOD{20};
+    static constexpr std::chrono::milliseconds TASK_ENGINE_PERIOD{20};
 };
 
 }  // namespace swarm

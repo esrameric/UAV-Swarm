@@ -19,8 +19,8 @@ SwarmManager& SwarmManager::get_instance()
     // kurulur ve program bitene kadar yaşar. Sonraki çağrılar aynı nesneyi
     // döndürür. C++11'den beri bu ilkleme thread-safe'tir; iki thread aynı
     // anda girse bile nesne yalnızca bir kez kurulur.
-    static SwarmManager tek_ornek;
-    return tek_ornek;
+    static SwarmManager single_instance;
+    return single_instance;
 }
 
 
@@ -33,22 +33,22 @@ void SwarmManager::init(const SwarmConfig& config)
     config_ = config;
 
     // Yeniden yapılandırmada eski durumdan kalıntı kalmasın.
-    kendi_durumu_ = DroneState{};
-    son_consensus_sonucu_ = ConsensusSonucu{};
-    aktif_gorev_baslatildi_ = false;
-    acil_durumda_ = false;
-    aktif_gorev_tipi_ = TaskType::INIT;
+    own_state_ = DroneState{};
+    last_consensus_outcome_ = ConsensusOutcome{};
+    active_task_started_ = false;
+    in_emergency_ = false;
+    active_task_type_ = TaskType::INIT;
     {
-        const std::lock_guard<std::mutex> kilit(istek_mutex_);
-        bekleyen_consensus_istegi_ = ConsensusIstegi{};
+        const std::lock_guard<std::mutex> lock(request_mutex_);
+        pending_consensus_request_ = ConsensusRequest{};
     }
 
     {
-        const std::lock_guard<std::mutex> kilit(peer_mutex_);
+        const std::lock_guard<std::mutex> lock(peer_mutex_);
         peer_table_ = PeerManager{};
     }
     {
-        const std::lock_guard<std::mutex> kilit(command_mutex_);
+        const std::lock_guard<std::mutex> lock(command_mutex_);
         command_queue_.clear();
     }
     task_queue_.clear();
@@ -56,12 +56,12 @@ void SwarmManager::init(const SwarmConfig& config)
 
 void SwarmManager::run()
 {
-    if (calisiyor_)
+    if (running_)
     {
         return;  // zaten çalışıyor
     }
 
-    calisiyor_ = true;
+    running_ = true;
 
     // Üç thread eş zamanlı başlar. Ağ dinlemek (I/O ağırlıklı) ile görev
     // yürütmek (hesap ağırlıklı) ayrı thread'lerde olduğu için biri
@@ -69,42 +69,42 @@ void SwarmManager::run()
     //
     // `this` yakalaması: lambda, SwarmManager'ın üye fonksiyonunu
     // çağırabilmek için nesnenin kendisine erişmek zorunda.
-    drone_list_threadi_ = std::thread([this]() { drone_list_dongusu(); });
-    komut_threadi_ = std::thread([this]() { komut_dongusu(); });
-    komut_yurutme_threadi_ = std::thread([this]() { komut_yurutme_dongusu(); });
+    drone_list_thread_ = std::thread([this]() { drone_list_loop(); });
+    command_thread_ = std::thread([this]() { command_loop(); });
+    task_engine_thread_ = std::thread([this]() { task_engine_loop(); });
 }
 
 void SwarmManager::stop()
 {
-    if (!calisiyor_)
+    if (!running_)
     {
         return;
     }
 
     // Önce durma işaretini veriyoruz; thread'ler döngü başında bunu görüp
     // kendiliğinden çıkacak.
-    calisiyor_ = false;
+    running_ = false;
 
     // joinable(): thread gerçekten başlatılmış ve henüz join edilmemiş mi?
     // join edilmemiş bir std::thread yok edilirse program std::terminate
     // ile aniden sonlanır — bu yüzden hepsini bekliyoruz.
-    if (drone_list_threadi_.joinable())
+    if (drone_list_thread_.joinable())
     {
-        drone_list_threadi_.join();
+        drone_list_thread_.join();
     }
-    if (komut_threadi_.joinable())
+    if (command_thread_.joinable())
     {
-        komut_threadi_.join();
+        command_thread_.join();
     }
-    if (komut_yurutme_threadi_.joinable())
+    if (task_engine_thread_.joinable())
     {
-        komut_yurutme_threadi_.join();
+        task_engine_thread_.join();
     }
 }
 
 bool SwarmManager::is_running() const
 {
-    return calisiyor_;
+    return running_;
 }
 
 // ---------------------------------------------------------------------------
@@ -114,16 +114,16 @@ bool SwarmManager::is_running() const
 //  günceller. ~10 Hz.
 // ---------------------------------------------------------------------------
 
-void SwarmManager::drone_list_dongusu()
+void SwarmManager::drone_list_loop()
 {
-    while (calisiyor_)
+    while (running_)
     {
-        const TimePoint simdi = std::chrono::steady_clock::now();
+        const TimePoint current_time = std::chrono::steady_clock::now();
 
-        send_self_status(simdi);
-        update_peer_list(simdi);
+        send_self_status(current_time);
+        update_peer_list(current_time);
 
-        std::this_thread::sleep_for(HEARTBEAT_PERIYODU);
+        std::this_thread::sleep_for(HEARTBEAT_PERIOD);
     }
 }
 
@@ -131,18 +131,18 @@ void SwarmManager::drone_list_dongusu()
 //  Thread 2 — Komut Döngüsü  (TCP / Reliable)
 //
 //  YKİ'den ve diğer drone'lardan gelen komutları ağdan alıp command_queue'ya
-//  ekler. Kuyruğu BOŞALTMAZ — tüketmek Thread 3'ün işidir; böylece görev
-//  kuyruğuna tek bir thread dokunmuş olur.
+//  ekler. Queue'yu BOŞALTMAZ — tüketmek Thread 3'ün işidir; böylece görev
+//  queue'suna tek bir thread dokunmuş olur.
 //
 //  Ağ tarafı Faz 4'te FastDDSWrapper ile bağlanacak; DDS okuyucuları gelen
-//  mesajları add_command() ile bu kuyruğa koyacak.
+//  mesajları add_command() ile bu queue'ya koyacak.
 // ---------------------------------------------------------------------------
 
-void SwarmManager::komut_dongusu()
+void SwarmManager::command_loop()
 {
-    while (calisiyor_)
+    while (running_)
     {
-        std::this_thread::sleep_for(KOMUT_PERIYODU);
+        std::this_thread::sleep_for(COMMAND_PERIOD);
     }
 }
 
@@ -150,36 +150,36 @@ void SwarmManager::komut_dongusu()
 //  Thread 3 — Komut Yürütme Döngüsü  (Task Engine)
 // ---------------------------------------------------------------------------
 
-void SwarmManager::komut_yurutme_dongusu()
+void SwarmManager::task_engine_loop()
 {
-    while (calisiyor_)
+    while (running_)
     {
-        task_engine_adimi(std::chrono::steady_clock::now());
-        std::this_thread::sleep_for(TASK_ENGINE_PERIYODU);
+        task_engine_step(std::chrono::steady_clock::now());
+        std::this_thread::sleep_for(TASK_ENGINE_PERIOD);
     }
 }
 
-void SwarmManager::request_consensus(uint32_t transaction_id, std::vector<uint8_t> oy_verenler)
+void SwarmManager::request_consensus(uint32_t transaction_id, std::vector<uint8_t> voters)
 {
-    const std::lock_guard<std::mutex> kilit(istek_mutex_);
-    bekleyen_consensus_istegi_.var = true;
-    bekleyen_consensus_istegi_.transaction_id = transaction_id;
-    bekleyen_consensus_istegi_.oy_verenler = std::move(oy_verenler);
+    const std::lock_guard<std::mutex> lock(request_mutex_);
+    pending_consensus_request_.present = true;
+    pending_consensus_request_.transaction_id = transaction_id;
+    pending_consensus_request_.voters = std::move(voters);
 }
 
-void SwarmManager::bekleyen_consensus_istegini_uygula()
+void SwarmManager::apply_pending_consensus_request()
 {
-    ConsensusIstegi istek;
+    ConsensusRequest request;
     {
-        const std::lock_guard<std::mutex> kilit(istek_mutex_);
-        if (!bekleyen_consensus_istegi_.var)
+        const std::lock_guard<std::mutex> lock(request_mutex_);
+        if (!pending_consensus_request_.present)
         {
             return;
         }
-        // İsteği kilit altında alıp bayrağı hemen indiriyoruz; kuyruk
-        // düzenlemesini kilit DIŞINDA yapıyoruz ki kilit uzun tutulmasın.
-        istek = std::move(bekleyen_consensus_istegi_);
-        bekleyen_consensus_istegi_ = ConsensusIstegi{};
+        // İsteği lock altında alıp bayrağı hemen indiriyoruz; queue
+        // düzenlemesini lock DIŞINDA yapıyoruz ki lock uzun tutulmasın.
+        request = std::move(pending_consensus_request_);
+        pending_consensus_request_ = ConsensusRequest{};
     }
 
     // Yeni oylama her şeyin önüne geçer: bekleyen görevler iptal edilir.
@@ -188,25 +188,25 @@ void SwarmManager::bekleyen_consensus_istegini_uygula()
     // Bu bayrağı sıfırlamak ŞART: aksi halde Task Engine yeni görevi
     // "zaten başlatılmış" sanar, on_enter() çağrılmaz ve ConsensusTask'ın
     // zaman aşımı sayacı hiç başlamadığı için oylama anında timeout'a düşer.
-    aktif_gorev_baslatildi_ = false;
+    active_task_started_ = false;
 
     task_queue_.push_back(
-            std::make_unique<ConsensusTask>(istek.transaction_id, istek.oy_verenler));
+            std::make_unique<ConsensusTask>(request.transaction_id, request.voters));
 }
 
-void SwarmManager::task_engine_adimi(TimePoint now)
+void SwarmManager::task_engine_step(TimePoint now)
 {
     // --- 0) Başka thread'den gelen consensus isteği var mı? ------------------
-    bekleyen_consensus_istegini_uygula();
+    apply_pending_consensus_request();
 
     // --- 1) Önce acil durum kontrolü (Bölüm 3.2) -----------------------------
     if (check_emergency(now))
     {
-        acil_durum_gorevlerini_yerlestir(now);
+        place_emergency_tasks(now);
     }
     else
     {
-        acil_durumda_ = false;
+        in_emergency_ = false;
     }
 
     // --- 2) Aktif görevi komutlardan ÖNCE başlat -----------------------------
@@ -220,22 +220,22 @@ void SwarmManager::task_engine_adimi(TimePoint now)
     // on_enter tarafından siliniyordu; oylama PENDING'de kalıp 5 saniye
     // sonra hatalı biçimde zaman aşımına düşüyordu. Bu, drone'lar oy vermiş
     // olmasına rağmen görevin iptal edilmesi demekti.
-    kuyrugu_hazirla(now);
+    prepare_queue(now);
 
     // --- 3) Bekleyen komutları işle ------------------------------------------
-    bekleyen_komutlari_isle(now);
+    process_pending_commands(now);
 
-    // Komut işleme kuyruğu değiştirmiş olabilir: yeni bir görev emri
+    // Komut işleme queue'yu değiştirmiş olabilir: yeni bir görev emri
     // IdleTask'ı yerinden eder. Devralan görev de çalıştırılmadan önce
     // başlatılmalı.
-    kuyrugu_hazirla(now);
+    prepare_queue(now);
 
-    Task* aktif_gorev = task_queue_.front().get();
+    Task* active_task = task_queue_.front().get();
 
     // --- 4) Aktif görevi ilerlet ---------------------------------------------
-    aktif_gorev->run(now);
+    active_task->run(now);
 
-    if (!aktif_gorev->is_finished())
+    if (!active_task->is_finished())
     {
         return;
     }
@@ -245,87 +245,87 @@ void SwarmManager::task_engine_adimi(TimePoint now)
     // olduğunu ÇALIŞMA ZAMANINDA sorar. Aradığımız tip değilse nullptr
     // döner. Burada gerekli, çünkü "görev bitti" sinyalinin anlamı
     // ConsensusTask için özeldir.
-    const ConsensusTask* consensus = dynamic_cast<const ConsensusTask*>(aktif_gorev);
-    const bool gorev_iptal_edilmeli = (consensus != nullptr) && consensus->mission_should_abort();
+    const ConsensusTask* consensus = dynamic_cast<const ConsensusTask*>(active_task);
+    const bool task_should_be_cancelled = (consensus != nullptr) && consensus->mission_should_abort();
 
     if (consensus != nullptr)
     {
         // Sonucu saklıyoruz: task birazdan silinecek, ama GCS gibi
         // gözlemcilerin sonucu öğrenmesi gerekiyor.
-        son_consensus_sonucu_.gecerli = true;
-        son_consensus_sonucu_.transaction_id = consensus->transaction_id();
-        son_consensus_sonucu_.sonuc = consensus->result();
-        son_consensus_sonucu_.timeout_ile_iptal = consensus->timeout_ile_iptal_oldu();
+        last_consensus_outcome_.valid = true;
+        last_consensus_outcome_.transaction_id = consensus->transaction_id();
+        last_consensus_outcome_.result = consensus->result();
+        last_consensus_outcome_.cancelled_by_timeout = consensus->cancelled_by_timeout();
 
-        std::string sonuc_adi = "PENDING";
+        std::string result_name = "PENDING";
         if (consensus->result() == ConsensusResult::COMMITTED)
         {
-            sonuc_adi = "COMMITTED";
+            result_name = "COMMITTED";
         }
         else if (consensus->result() == ConsensusResult::ABORTED)
         {
-            sonuc_adi = consensus->timeout_ile_iptal_oldu() ? "ABORTED_TIMEOUT" : "ABORTED_NACK";
+            result_name = consensus->cancelled_by_timeout() ? "ABORTED_TIMEOUT" : "ABORTED_NACK";
         }
         log("consensus", "sonuc tx=" + std::to_string(consensus->transaction_id()) +
-                         " " + sonuc_adi);
+                         " " + result_name);
     }
 
-    aktif_gorev->on_exit();
+    active_task->on_exit();
     task_queue_.pop_front();
-    aktif_gorev_baslatildi_ = false;
+    active_task_started_ = false;
 
-    if (gorev_iptal_edilmeli)
+    if (task_should_be_cancelled)
     {
         // Bölüm 2/3.6: oylama başarısızsa TÜM görev iptal edilir ve sürü
-        // IdleTask'a döner. Bir sonraki turda kuyruk boş bulunacağı için
+        // IdleTask'a döner. Bir sonraki turda queue boş bulunacağı için
         // IdleTask kendiliğinden yerleşir.
         task_queue_.clear();
         return;
     }
 
     // Sıradaki görev varsa hemen başlat.
-    aktif_gorevi_baslat(now);
+    start_active_task(now);
 }
 
-void SwarmManager::kuyrugu_hazirla(TimePoint now)
+void SwarmManager::prepare_queue(TimePoint now)
 {
     // Kuyruk boşaldıysa IdleTask'a düşülür (Bölüm 3.2).
     if (task_queue_.empty())
     {
-        task_queue_.push_back(std::make_unique<IdleTask>(kendi_durumu_));
-        aktif_gorev_baslatildi_ = false;
+        task_queue_.push_back(std::make_unique<IdleTask>(own_state_));
+        active_task_started_ = false;
     }
 
-    if (!aktif_gorev_baslatildi_)
+    if (!active_task_started_)
     {
-        aktif_gorevi_baslat(now);
+        start_active_task(now);
     }
 }
 
-void SwarmManager::aktif_gorevi_baslat(TimePoint now)
+void SwarmManager::start_active_task(TimePoint now)
 {
     if (task_queue_.empty())
     {
         return;
     }
 
-    Task& gorev = *task_queue_.front();
-    gorev.on_enter(now);
-    aktif_gorev_baslatildi_ = true;
-    gorev_tipini_kaydet(gorev.get_type());
+    Task& task = *task_queue_.front();
+    task.on_enter(now);
+    active_task_started_ = true;
+    record_task_type(task.get_type());
 }
 
-void SwarmManager::bekleyen_komutlari_isle(TimePoint now)
+void SwarmManager::process_pending_commands(TimePoint now)
 {
-    Command komut;
-    while (pop_command(komut))
+    Command command;
+    while (pop_command(command))
     {
-        switch (komut.type)
+        switch (command.type)
         {
             case CommandType::CONSENSUS:
             {
                 // Kendi yayınımızı geri duymuş olabiliriz.
-                if (komut.consensus.sender_id() == config_.drone_id)
+                if (command.consensus.sender_id() == config_.drone_id)
                 {
                     break;
                 }
@@ -333,37 +333,37 @@ void SwarmManager::bekleyen_komutlari_isle(TimePoint now)
                 // TEKLİF mi, OY mu? Teklifte vote alanı PENDING'dir
                 // ("henüz oy yok"); oy mesajlarında ACK veya NACK olur.
                 // Bir drone teklif aldığında kendi oyunu üretip yayınlar.
-                if (komut.consensus.vote() == Vote::PENDING)
+                if (command.consensus.vote() == Vote::PENDING)
                 {
                     if (config_.node_type == NodeType::DRONE)
                     {
-                        teklife_oy_ver(komut.consensus);
+                        vote_on_proposal(command.consensus);
                     }
                     break;
                 }
 
                 // Oy yalnızca AKTİF ConsensusTask'ı ilgilendirir ve
                 // transaction_id'si tutmalıdır.
-                ConsensusTask* aktif_oylama = nullptr;
+                ConsensusTask* active_voting = nullptr;
                 if (!task_queue_.empty())
                 {
-                    aktif_oylama = dynamic_cast<ConsensusTask*>(task_queue_.front().get());
+                    active_voting = dynamic_cast<ConsensusTask*>(task_queue_.front().get());
                 }
 
-                if (aktif_oylama != nullptr &&
-                    aktif_oylama->transaction_id() == komut.consensus.transaction_id())
+                if (active_voting != nullptr &&
+                    active_voting->transaction_id() == command.consensus.transaction_id())
                 {
-                    aktif_oylama->on_vote(komut.consensus.sender_id(), komut.consensus.vote());
+                    active_voting->on_vote(command.consensus.sender_id(), command.consensus.vote());
                 }
                 break;
             }
 
             case CommandType::TASK_ALLOCATION:
             {
-                std::unique_ptr<Task> yeni_gorev = TaskAllocationEngine::gorev_uret(
-                        komut.task_allocation, config_, kendi_durumu_);
+                std::unique_ptr<Task> new_task = TaskAllocationEngine::create_task(
+                        command.task_allocation, config_, own_state_);
 
-                if (yeni_gorev == nullptr)
+                if (new_task == nullptr)
                 {
                     break;  // emir bu düğümü ilgilendirmiyor
                 }
@@ -376,10 +376,10 @@ void SwarmManager::bekleyen_komutlari_isle(TimePoint now)
                 {
                     task_queue_.front()->on_exit();
                     task_queue_.pop_front();
-                    aktif_gorev_baslatildi_ = false;
+                    active_task_started_ = false;
                 }
 
-                task_queue_.push_back(std::move(yeni_gorev));
+                task_queue_.push_back(std::move(new_task));
                 break;
             }
         }
@@ -388,19 +388,19 @@ void SwarmManager::bekleyen_komutlari_isle(TimePoint now)
     (void)now;  // şu an kullanılmıyor; imza tutarlılığı için duruyor
 }
 
-void SwarmManager::gorev_tipini_kaydet(TaskType yeni_tip)
+void SwarmManager::record_task_type(TaskType new_type)
 {
-    const TaskType onceki = aktif_gorev_tipi_;
-    if (onceki == yeni_tip)
+    const TaskType previous = active_task_type_;
+    if (previous == new_type)
     {
         return;
     }
 
-    aktif_gorev_tipi_ = yeni_tip;
-    log("task", std::string("gecis: ") + task_type_adi(onceki) + " -> " + task_type_adi(yeni_tip));
+    active_task_type_ = new_type;
+    log("task", std::string("gecis: ") + task_type_name(previous) + " -> " + task_type_name(new_type));
 }
 
-void SwarmManager::teklife_oy_ver(const Consensus& teklif)
+void SwarmManager::vote_on_proposal(const Consensus& proposal)
 {
     // Arıza enjeksiyonu: "ayakta ama sessiz" düğüm simülasyonu (bkz.
     // SwarmConfig::fault_silent_consensus). Heartbeat yayınına devam
@@ -408,45 +408,45 @@ void SwarmManager::teklife_oy_ver(const Consensus& teklif)
     if (config_.fault_silent_consensus)
     {
         log("consensus", "ARIZA SIMULASYONU: tx=" +
-                         std::to_string(teklif.transaction_id()) + " icin oy VERILMIYOR");
+                         std::to_string(proposal.transaction_id()) + " icin oy VERILMIYOR");
         return;
     }
 
     // Karar ölçütü: göreve çıkacak kadar bataryamız var mı?
     // (Bölüm 3.6: "Her drone kendi durumunu kontrol eder.")
-    const Vote karar = (kendi_durumu_.battery < KRITIK_BATARYA_YUZDESI)
+    const Vote decision = (own_state_.battery < CRITICAL_BATTERY_PERCENTAGE)
             ? Vote::NACK
             : Vote::ACK;
 
-    Consensus oy;
-    oy.transaction_id(teklif.transaction_id());
-    oy.sender_id(config_.drone_id);
-    oy.vote(karar);
-    oy.seq_num(teklif.seq_num());
+    Consensus vote;
+    vote.transaction_id(proposal.transaction_id());
+    vote.sender_id(config_.drone_id);
+    vote.vote(decision);
+    vote.seq_num(proposal.seq_num());
 
-    log("consensus", "oy veriliyor tx=" + std::to_string(teklif.transaction_id()) +
-                     " vote=" + (karar == Vote::ACK ? "ACK" : "NACK"));
+    log("consensus", "oy veriliyor tx=" + std::to_string(proposal.transaction_id()) +
+                     " vote=" + (decision == Vote::ACK ? "ACK" : "NACK"));
 
-    publish_consensus(oy);
+    publish_consensus(vote);
 }
 
-void SwarmManager::acil_durum_gorevlerini_yerlestir(TimePoint)
+void SwarmManager::place_emergency_tasks(TimePoint)
 {
-    if (acil_durumda_)
+    if (in_emergency_)
     {
-        return;  // zaten acil durum görevleri kuyrukta
+        return;  // zaten acil durum görevleri queue'da
     }
 
-    acil_durumda_ = true;
+    in_emergency_ = true;
     log("emergency", "acil durum tespit edildi - FailSafe/Landing dizisine geciliyor");
 
     // Ne yapıyor olursak olalım bırakıp güvenli diziye geçiyoruz:
     // önce dur ve değerlendir, sonra in, sonra boşta bekle.
     task_queue_.clear();
-    aktif_gorev_baslatildi_ = false;
+    active_task_started_ = false;
 
-    task_queue_.push_back(std::make_unique<FailSafeTask>(kendi_durumu_));
-    task_queue_.push_back(std::make_unique<LandingTask>(kendi_durumu_));
+    task_queue_.push_back(std::make_unique<FailSafeTask>(own_state_));
+    task_queue_.push_back(std::make_unique<LandingTask>(own_state_));
 }
 
 // ---------------------------------------------------------------------------
@@ -456,7 +456,7 @@ void SwarmManager::acil_durum_gorevlerini_yerlestir(TimePoint)
 bool SwarmManager::check_emergency(TimePoint) const
 {
     // 1) Kendi bataryamız kritik mi?
-    if (kendi_durumu_.battery < KRITIK_BATARYA_YUZDESI)
+    if (own_state_.battery < CRITICAL_BATTERY_PERCENTAGE)
     {
         return true;
     }
@@ -469,7 +469,7 @@ bool SwarmManager::check_emergency(TimePoint) const
     // tabloya hiç eklenmemiştir. Bu ayrım önemli: Bölüm 2'deki non-blocking
     // keşif stratejisi "hiç gelmeyen" drone'u acil durum saymaz, ama
     // "gelip kaybolan" drone'u sayar.
-    const std::lock_guard<std::mutex> kilit(peer_mutex_);
+    const std::lock_guard<std::mutex> lock(peer_mutex_);
     return peer_table_.offline_peer_count() > 0;
 }
 
@@ -479,102 +479,102 @@ bool SwarmManager::check_emergency(TimePoint) const
 
 Heartbeat SwarmManager::build_heartbeat() const
 {
-    Heartbeat kalp_atisi;
-    kalp_atisi.drone_id(config_.drone_id);
-    kalp_atisi.node_type(config_.node_type);
-    kalp_atisi.role(config_.role);
+    Heartbeat heartbeat;
+    heartbeat.drone_id(config_.drone_id);
+    heartbeat.node_type(config_.node_type);
+    heartbeat.role(config_.role);
 
     // "Şu an ne yapıyorum" = aktif Task'ın tipi (Bölüm 3.5).
     // task_queue_ boşsa henüz bir görev başlamamıştır: INIT bildiriyoruz.
-    kalp_atisi.current_task(
+    heartbeat.current_task(
             task_queue_.empty() ? TaskType::INIT : task_queue_.front()->get_type());
 
-    return kalp_atisi;
+    return heartbeat;
 }
 
 Telemetry SwarmManager::build_telemetry(TimePoint now)
 {
     // Sayaç her yayında bir artar ve HİÇ SIFIRLANMAZ. Alıcı taraf
     // bayatlığı bununla ölçer (Bölüm 3.5).
-    ++telemetri_seq_num_;
+    ++telemetry_seq_num_;
 
-    Telemetry telemetri;
-    telemetri.drone_id(config_.drone_id);
-    telemetri.seq_num(telemetri_seq_num_);
+    Telemetry telemetry;
+    telemetry.drone_id(config_.drone_id);
+    telemetry.seq_num(telemetry_seq_num_);
 
-    telemetri.x(kendi_durumu_.x);
-    telemetri.y(kendi_durumu_.y);
-    telemetri.z(kendi_durumu_.z);
-    telemetri.vx(kendi_durumu_.vx);
-    telemetri.vy(kendi_durumu_.vy);
-    telemetri.vz(kendi_durumu_.vz);
-    telemetri.battery(kendi_durumu_.battery);
+    telemetry.x(own_state_.x);
+    telemetry.y(own_state_.y);
+    telemetry.z(own_state_.z);
+    telemetry.vx(own_state_.vx);
+    telemetry.vy(own_state_.vy);
+    telemetry.vz(own_state_.vz);
+    telemetry.battery(own_state_.battery);
 
     // timestamp YALNIZCA bilgi/log amaçlı (Bölüm 3.5); bayatlık kararında
     // kullanılmaz. Duvar saati (system_clock) burada uygundur, çünkü
     // amaç insan tarafından okunabilir bir zaman damgası vermek.
     const auto epoch_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch());
-    telemetri.timestamp(static_cast<uint64_t>(epoch_ms.count()));
+    telemetry.timestamp(static_cast<uint64_t>(epoch_ms.count()));
 
     (void)now;
-    return telemetri;
+    return telemetry;
 }
 
 void SwarmManager::send_self_status(TimePoint now)
 {
     // Yayıncı bağlı değilse (Faz 4 öncesi veya testte) mesajı üretmenin
     // maliyetine girmiyoruz.
-    if (heartbeat_yayinlayici_)
+    if (heartbeat_publisher_)
     {
-        heartbeat_yayinlayici_(build_heartbeat());
+        heartbeat_publisher_(build_heartbeat());
     }
 
-    if (telemetri_yayinlayici_)
+    if (telemetry_publisher_)
     {
-        telemetri_yayinlayici_(build_telemetry(now));
-    }
-}
-
-void SwarmManager::set_heartbeat_publisher(HeartbeatYayinlayici yayinlayici)
-{
-    heartbeat_yayinlayici_ = std::move(yayinlayici);
-}
-
-void SwarmManager::set_telemetry_publisher(TelemetriYayinlayici yayinlayici)
-{
-    telemetri_yayinlayici_ = std::move(yayinlayici);
-}
-
-void SwarmManager::set_consensus_publisher(ConsensusYayinlayici yayinlayici)
-{
-    consensus_yayinlayici_ = std::move(yayinlayici);
-}
-
-void SwarmManager::set_task_allocation_publisher(GorevEmriYayinlayici yayinlayici)
-{
-    gorev_emri_yayinlayici_ = std::move(yayinlayici);
-}
-
-void SwarmManager::publish_consensus(const Consensus& mesaj)
-{
-    if (consensus_yayinlayici_)
-    {
-        consensus_yayinlayici_(mesaj);
+        telemetry_publisher_(build_telemetry(now));
     }
 }
 
-void SwarmManager::publish_task_allocation(const TaskAllocation& emir)
+void SwarmManager::set_heartbeat_publisher(HeartbeatPublisher publisher)
 {
-    if (gorev_emri_yayinlayici_)
+    heartbeat_publisher_ = std::move(publisher);
+}
+
+void SwarmManager::set_telemetry_publisher(TelemetryPublisher publisher)
+{
+    telemetry_publisher_ = std::move(publisher);
+}
+
+void SwarmManager::set_consensus_publisher(ConsensusPublisher publisher)
+{
+    consensus_publisher_ = std::move(publisher);
+}
+
+void SwarmManager::set_task_allocation_publisher(TaskOrderPublisher publisher)
+{
+    task_order_publisher_ = std::move(publisher);
+}
+
+void SwarmManager::publish_consensus(const Consensus& message)
+{
+    if (consensus_publisher_)
     {
-        gorev_emri_yayinlayici_(emir);
+        consensus_publisher_(message);
+    }
+}
+
+void SwarmManager::publish_task_allocation(const TaskAllocation& order)
+{
+    if (task_order_publisher_)
+    {
+        task_order_publisher_(order);
     }
 }
 
 std::vector<uint8_t> SwarmManager::online_drone_ids() const
 {
-    const std::lock_guard<std::mutex> kilit(peer_mutex_);
+    const std::lock_guard<std::mutex> lock(peer_mutex_);
     return peer_table_.online_drone_ids();
 }
 
@@ -584,16 +584,16 @@ std::vector<uint8_t> SwarmManager::online_drone_ids() const
 
 void SwarmManager::update_peer_list(TimePoint now)
 {
-    const std::lock_guard<std::mutex> kilit(peer_mutex_);
+    const std::lock_guard<std::mutex> lock(peer_mutex_);
 
-    const std::size_t onceki_offline = peer_table_.offline_peer_count();
+    const std::size_t previous_offline = peer_table_.offline_peer_count();
     peer_table_.refresh_status(now);
-    const std::size_t simdiki_offline = peer_table_.offline_peer_count();
+    const std::size_t current_offline = peer_table_.offline_peer_count();
 
-    if (simdiki_offline > onceki_offline)
+    if (current_offline > previous_offline)
     {
         log("peer", "kayip peer tespit edildi (offline sayisi=" +
-                    std::to_string(simdiki_offline) + ")");
+                    std::to_string(current_offline) + ")");
     }
 }
 
@@ -606,24 +606,24 @@ void SwarmManager::on_heartbeat_received(const Heartbeat& heartbeat, TimePoint n
         return;
     }
 
-    const std::lock_guard<std::mutex> kilit(peer_mutex_);
+    const std::lock_guard<std::mutex> lock(peer_mutex_);
 
-    const bool onceden_taniyor_muyduk = (peer_table_.find(heartbeat.drone_id()) != nullptr);
-    const bool onceden_online_miydi =
+    const bool was_known_before = (peer_table_.find(heartbeat.drone_id()) != nullptr);
+    const bool was_online_before =
             (peer_table_.status_of(heartbeat.drone_id()) == PeerStatus::ONLINE);
 
     peer_table_.on_heartbeat(heartbeat, now);
 
-    if (!onceden_taniyor_muyduk)
+    if (!was_known_before)
     {
-        const std::string rol_metni = (heartbeat.node_type() == NodeType::DRONE)
-                ? drone_role_adi(heartbeat.role())
+        const std::string role_text = (heartbeat.node_type() == NodeType::DRONE)
+                ? drone_role_name(heartbeat.role())
                 : "-";
         log("peer", "yeni peer: id=" + std::to_string(heartbeat.drone_id()) +
-                    " type=" + node_type_adi(heartbeat.node_type()) +
-                    " role=" + rol_metni);
+                    " type=" + node_type_name(heartbeat.node_type()) +
+                    " role=" + role_text);
     }
-    else if (!onceden_online_miydi)
+    else if (!was_online_before)
     {
         log("peer", "geri dondu: id=" + std::to_string(heartbeat.drone_id()) +
                     " (seq takibi sifirlandi)");
@@ -637,12 +637,12 @@ bool SwarmManager::on_telemetry_received(const Telemetry& telemetry, TimePoint n
         return false;
     }
 
-    const std::lock_guard<std::mutex> kilit(peer_mutex_);
+    const std::lock_guard<std::mutex> lock(peer_mutex_);
 
-    bool yeni_akis = false;
-    const bool kabul_edildi = peer_table_.on_telemetry(telemetry, now, &yeni_akis);
+    bool new_stream = false;
+    const bool accepted = peer_table_.on_telemetry(telemetry, now, &new_stream);
 
-    if (kabul_edildi && yeni_akis)
+    if (accepted && new_stream)
     {
         // Sadece akış başlarken bir kez: 20-50 Hz'lik akışı loglamak
         // çıktıyı okunamaz hale getirirdi.
@@ -650,40 +650,40 @@ bool SwarmManager::on_telemetry_received(const Telemetry& telemetry, TimePoint n
                          " akisi basladi seq=" + std::to_string(telemetry.seq_num()));
     }
 
-    return kabul_edildi;
+    return accepted;
 }
 
 // ---------------------------------------------------------------------------
-//  Komut kuyruğu
+//  Komut queue'su
 // ---------------------------------------------------------------------------
 
-void SwarmManager::add_command(const Command& komut)
+void SwarmManager::add_command(const Command& command)
 {
-    // std::lock_guard: RAII tabanlı kilit. Kurulduğu anda mutex'i kilitler,
+    // std::lock_guard: RAII tabanlı lock. Kurulduğu anda mutex'i kilitler,
     // kapsam (scope) bittiğinde OTOMATİK olarak açar — fonksiyondan erken
     // return edilse veya istisna atılsa bile. Elle lock()/unlock() yazmak,
-    // bir yolda unlock'u unutup tüm programı kilitleme riski taşır.
-    const std::lock_guard<std::mutex> kilit(command_mutex_);
-    command_queue_.push_back(komut);
+    // bir yolda unlock'u unutup tüm programı lock'lu bırakma riski taşır.
+    const std::lock_guard<std::mutex> lock(command_mutex_);
+    command_queue_.push_back(command);
 }
 
-bool SwarmManager::pop_command(Command& cikti)
+bool SwarmManager::pop_command(Command& output)
 {
-    const std::lock_guard<std::mutex> kilit(command_mutex_);
+    const std::lock_guard<std::mutex> lock(command_mutex_);
 
     if (command_queue_.empty())
     {
         return false;
     }
 
-    cikti = command_queue_.front();
+    output = command_queue_.front();
     command_queue_.pop_front();
     return true;
 }
 
 std::size_t SwarmManager::command_queue_size() const
 {
-    const std::lock_guard<std::mutex> kilit(command_mutex_);
+    const std::lock_guard<std::mutex> lock(command_mutex_);
     return command_queue_.size();
 }
 
@@ -693,26 +693,26 @@ std::size_t SwarmManager::command_queue_size() const
 
 std::size_t SwarmManager::peer_count() const
 {
-    const std::lock_guard<std::mutex> kilit(peer_mutex_);
+    const std::lock_guard<std::mutex> lock(peer_mutex_);
     return peer_table_.peer_count();
 }
 
 std::size_t SwarmManager::online_peer_count() const
 {
-    const std::lock_guard<std::mutex> kilit(peer_mutex_);
+    const std::lock_guard<std::mutex> lock(peer_mutex_);
     return peer_table_.online_peer_count();
 }
 
 // ---------------------------------------------------------------------------
-//  Görev kuyruğu  (kilit yok: yalnızca Task Engine thread'i dokunur)
+//  Görev queue'su  (lock yok: yalnızca Task Engine thread'i dokunur)
 // ---------------------------------------------------------------------------
 
-void SwarmManager::push_task(std::unique_ptr<Task> gorev)
+void SwarmManager::push_task(std::unique_ptr<Task> task)
 {
     // std::move: unique_ptr KOPYALANAMAZ (tek sahiplik kuralı), yalnızca
     // TAŞINABİLİR. std::move, "bu nesnenin sahipliğini devrediyorum" demenin
     // yoludur; taşımadan sonra çağıranın elindeki işaretçi boşalır.
-    task_queue_.push_back(std::move(gorev));
+    task_queue_.push_back(std::move(task));
 }
 
 std::size_t SwarmManager::task_queue_size() const

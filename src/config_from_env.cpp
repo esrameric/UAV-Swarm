@@ -7,111 +7,111 @@ namespace swarm {
 
 namespace {
 
-std::string env_oku(const char* isim, const std::string& varsayilan)
+std::string read_env(const char* name, const std::string& default_value)
 {
     // std::getenv, değişken tanımlı değilse nullptr döner.
-    const char* deger = std::getenv(isim);
-    if (deger == nullptr || std::string(deger).empty())
+    const char* value = std::getenv(name);
+    if (value == nullptr || std::string(value).empty())
     {
-        return varsayilan;
+        return default_value;
     }
-    return std::string(deger);
+    return std::string(value);
 }
 
 }  // namespace
 
-ConfigSonucu config_ortamdan_oku()
+ConfigResult read_config_from_env()
 {
-    ConfigSonucu sonuc;
+    ConfigResult result;
 
     // --- NODE_TYPE -----------------------------------------------------------
-    const std::string node_type_metni = env_oku("NODE_TYPE", "DRONE");
-    if (node_type_metni == "DRONE")
+    const std::string node_type_text = read_env("NODE_TYPE", "DRONE");
+    if (node_type_text == "DRONE")
     {
-        sonuc.config.node_type = NodeType::DRONE;
+        result.config.node_type = NodeType::DRONE;
     }
-    else if (node_type_metni == "GCS")
+    else if (node_type_text == "GCS")
     {
-        sonuc.config.node_type = NodeType::GCS;
+        result.config.node_type = NodeType::GCS;
     }
     else
     {
         // Sessizce varsayılana düşmüyoruz: yanlış yapılandırma saatlerce
         // gizli kalabilir. Erken ve gürültülü hata vermek daha iyidir.
-        sonuc.hata = "NODE_TYPE 'DRONE' veya 'GCS' olmali, gelen: '" + node_type_metni + "'";
-        return sonuc;
+        result.error = "NODE_TYPE 'DRONE' veya 'GCS' olmali, gelen: '" + node_type_text + "'";
+        return result;
     }
 
     // --- ROLE (yalnızca DRONE için anlamlı, Bölüm 3.5) ------------------------
-    if (sonuc.config.node_type == NodeType::DRONE)
+    if (result.config.node_type == NodeType::DRONE)
     {
-        const std::string role_metni = env_oku("ROLE", "SCOUT");
-        if (role_metni == "SCOUT")
+        const std::string role_text = read_env("ROLE", "SCOUT");
+        if (role_text == "SCOUT")
         {
-            sonuc.config.role = DroneRole::SCOUT;
+            result.config.role = DroneRole::SCOUT;
         }
-        else if (role_metni == "STRIKER")
+        else if (role_text == "STRIKER")
         {
-            sonuc.config.role = DroneRole::STRIKER;
+            result.config.role = DroneRole::STRIKER;
         }
         else
         {
-            sonuc.hata = "ROLE 'SCOUT' veya 'STRIKER' olmali, gelen: '" + role_metni + "'";
-            return sonuc;
+            result.error = "ROLE 'SCOUT' veya 'STRIKER' olmali, gelen: '" + role_text + "'";
+            return result;
         }
     }
 
     // --- Sayısal alanlar ------------------------------------------------------
-    struct SayisalAlan
+    struct NumericField
     {
-        const char* isim;
-        unsigned long varsayilan;
-        unsigned long azami;
-        unsigned long deger;
+        const char* name;
+        unsigned long default_value;
+        unsigned long max;
+        unsigned long value;
     };
 
-    SayisalAlan alanlar[] = {
+    NumericField fields[] = {
         {"DRONE_ID", 0, 255, 0},
         {"ROS_DOMAIN_ID", 42, 232, 0},      // DDS domain üst sınırı 232
         {"INITIAL_BATTERY", 100, 100, 0},
         {"FAULT_SILENT_CONSENSUS", 0, 1, 0},
     };
 
-    for (SayisalAlan& alan : alanlar)
+    for (NumericField& field : fields)
     {
-        const std::string metin = env_oku(alan.isim, "");
-        if (metin.empty())
+        const std::string text = read_env(field.name, "");
+        if (text.empty())
         {
-            alan.deger = alan.varsayilan;
+            field.value = field.default_value;
             continue;
         }
 
         try
         {
             // std::stoul metni sayıya çevirir; çeviremezse istisna atar.
-            alan.deger = std::stoul(metin);
+            field.value = std::stoul(text);
         }
         catch (const std::exception&)
         {
-            sonuc.hata = std::string(alan.isim) + " sayiya cevrilemedi: '" + metin + "'";
-            return sonuc;
+            result.error = std::string(field.name) + " sayiya cevrilemedi: '" + text + "'";
+            return result;
         }
 
-        if (alan.deger > alan.azami)
+        if (field.value > field.max)
         {
-            sonuc.hata = std::string(alan.isim) + " en fazla " +
-                         std::to_string(alan.azami) + " olabilir, gelen: " + metin;
-            return sonuc;
+            result.error = std::string(field.name) + " en fazla " +
+                         std::to_string(field.max) + " olabilir, gelen: " + text;
+            return result;
         }
     }
 
-    sonuc.config.drone_id = static_cast<uint8_t>(alanlar[0].deger);
-    sonuc.config.domain_id = static_cast<uint32_t>(alanlar[1].deger);
-    sonuc.baslangic_bataryasi = static_cast<uint8_t>(alanlar[2].deger);
-    sonuc.config.fault_silent_consensus = (alanlar[3].deger == 1);
+    result.config.drone_id = static_cast<uint8_t>(fields[0].value);
+    result.config.domain_id = static_cast<uint32_t>(fields[1].value);
+    result.starting_battery = static_cast<uint8_t>(fields[2].value);
+    result.config.fault_silent_consensus = (fields[3].value == 1);
 
-    sonuc.basarili = true;
-    return sonuc;
+    result.success = true;
+    return result;
 }
 
 }  // namespace swarm

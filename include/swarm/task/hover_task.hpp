@@ -11,7 +11,7 @@ namespace swarm {
 class HoverTask : public Task
 {
 public:
-    HoverTask(DroneState& durum, std::chrono::milliseconds sure);
+    HoverTask(DroneState& state, std::chrono::milliseconds duration);
 
     void on_enter(TimePoint now) override;
     void run(TimePoint now) override;
@@ -20,10 +20,10 @@ public:
     TaskType get_type() const override;
 
 private:
-    DroneState& durum_;
-    std::chrono::milliseconds sure_;
-    TimePoint baslangic_{};
-    bool tamamlandi_ = false;
+    DroneState& state_;
+    std::chrono::milliseconds duration_;
+    TimePoint start_{};
+    bool finished_ = false;
 };
 
 }  // namespace swarm

@@ -21,28 +21,28 @@ namespace {
 using namespace std::chrono_literals;
 
 // Testlerde tekrar tekrar heartbeat kurmamak için küçük bir yardımcı.
-swarm::Heartbeat heartbeat_olustur(
+swarm::Heartbeat create_heartbeat(
         uint8_t drone_id,
-        swarm::TaskType gorev = swarm::TaskType::IDLE)
+        swarm::TaskType task = swarm::TaskType::IDLE)
 {
-    swarm::Heartbeat kalp_atisi;
-    kalp_atisi.drone_id(drone_id);
-    kalp_atisi.node_type(swarm::NodeType::DRONE);
-    kalp_atisi.role(swarm::DroneRole::SCOUT);
-    kalp_atisi.current_task(gorev);
-    return kalp_atisi;
+    swarm::Heartbeat heartbeat;
+    heartbeat.drone_id(drone_id);
+    heartbeat.node_type(swarm::NodeType::DRONE);
+    heartbeat.role(swarm::DroneRole::SCOUT);
+    heartbeat.current_task(task);
+    return heartbeat;
 }
 
-swarm::Telemetry telemetri_olustur(uint8_t drone_id, uint32_t seq_num)
+swarm::Telemetry create_telemetry(uint8_t drone_id, uint32_t seq_num)
 {
-    swarm::Telemetry telemetri;
-    telemetri.drone_id(drone_id);
-    telemetri.seq_num(seq_num);
-    return telemetri;
+    swarm::Telemetry telemetry;
+    telemetry.drone_id(drone_id);
+    telemetry.seq_num(seq_num);
+    return telemetry;
 }
 
 // Testlerin başlangıç zamanı. Gerçek saatten bağımsız, sabit bir referans.
-const std::chrono::steady_clock::time_point BASLANGIC{};
+const std::chrono::steady_clock::time_point START{};
 
 }  // namespace
 
@@ -52,41 +52,41 @@ const std::chrono::steady_clock::time_point BASLANGIC{};
 
 TEST(PeerManager, BaslangictaTabloBos)
 {
-    const swarm::PeerManager yonetici;
+    const swarm::PeerManager manager;
 
-    EXPECT_EQ(yonetici.peer_count(), 0u);
-    EXPECT_EQ(yonetici.status_of(1), swarm::PeerStatus::OFFLINE);
-    EXPECT_EQ(yonetici.find(1), nullptr);
+    EXPECT_EQ(manager.peer_count(), 0u);
+    EXPECT_EQ(manager.status_of(1), swarm::PeerStatus::OFFLINE);
+    EXPECT_EQ(manager.find(1), nullptr);
 }
 
 TEST(PeerManager, IlkHeartbeatPeeriEklerVeOnlineYapar)
 {
-    swarm::PeerManager yonetici;
+    swarm::PeerManager manager;
 
-    yonetici.on_heartbeat(heartbeat_olustur(1, swarm::TaskType::DISCOVERY), BASLANGIC);
+    manager.on_heartbeat(create_heartbeat(1, swarm::TaskType::DISCOVERY), START);
 
-    EXPECT_EQ(yonetici.peer_count(), 1u);
-    EXPECT_EQ(yonetici.status_of(1), swarm::PeerStatus::ONLINE);
+    EXPECT_EQ(manager.peer_count(), 1u);
+    EXPECT_EQ(manager.status_of(1), swarm::PeerStatus::ONLINE);
 
-    const swarm::PeerRecord* kayit = yonetici.find(1);
-    ASSERT_NE(kayit, nullptr);
-    EXPECT_EQ(kayit->info.drone_id, 1u);
-    EXPECT_EQ(kayit->info.current_task, swarm::TaskType::DISCOVERY);
-    EXPECT_EQ(kayit->info.last_heartbeat_local, BASLANGIC);
+    const swarm::PeerRecord* record = manager.find(1);
+    ASSERT_NE(record, nullptr);
+    EXPECT_EQ(record->info.drone_id, 1u);
+    EXPECT_EQ(record->info.current_task, swarm::TaskType::DISCOVERY);
+    EXPECT_EQ(record->info.last_heartbeat_local, START);
 }
 
 TEST(PeerManager, HeartbeatAktifGoreviTazeler)
 {
-    swarm::PeerManager yonetici;
+    swarm::PeerManager manager;
 
-    yonetici.on_heartbeat(heartbeat_olustur(2, swarm::TaskType::IDLE), BASLANGIC);
-    yonetici.on_heartbeat(heartbeat_olustur(2, swarm::TaskType::GO_TO_TARGET),
-                          BASLANGIC + 100ms);
+    manager.on_heartbeat(create_heartbeat(2, swarm::TaskType::IDLE), START);
+    manager.on_heartbeat(create_heartbeat(2, swarm::TaskType::GO_TO_TARGET),
+                          START + 100ms);
 
-    const swarm::PeerRecord* kayit = yonetici.find(2);
-    ASSERT_NE(kayit, nullptr);
-    EXPECT_EQ(kayit->info.current_task, swarm::TaskType::GO_TO_TARGET);
-    EXPECT_EQ(yonetici.peer_count(), 1u);  // aynı peer, ikinci kayıt açılmadı
+    const swarm::PeerRecord* record = manager.find(2);
+    ASSERT_NE(record, nullptr);
+    EXPECT_EQ(record->info.current_task, swarm::TaskType::GO_TO_TARGET);
+    EXPECT_EQ(manager.peer_count(), 1u);  // aynı peer, ikinci kayıt açılmadı
 }
 
 // ---------------------------------------------------------------------------
@@ -95,22 +95,22 @@ TEST(PeerManager, HeartbeatAktifGoreviTazeler)
 
 TEST(PeerManager, TimeoutDolmadanOnlineKalir)
 {
-    swarm::PeerManager yonetici{3000ms};
-    yonetici.on_heartbeat(heartbeat_olustur(1), BASLANGIC);
+    swarm::PeerManager manager{3000ms};
+    manager.on_heartbeat(create_heartbeat(1), START);
 
-    yonetici.refresh_status(BASLANGIC + 2999ms);
+    manager.refresh_status(START + 2999ms);
 
-    EXPECT_EQ(yonetici.status_of(1), swarm::PeerStatus::ONLINE);
+    EXPECT_EQ(manager.status_of(1), swarm::PeerStatus::ONLINE);
 }
 
 TEST(PeerManager, TimeoutDolunsaOfflineOlur)
 {
-    swarm::PeerManager yonetici{3000ms};
-    yonetici.on_heartbeat(heartbeat_olustur(1), BASLANGIC);
+    swarm::PeerManager manager{3000ms};
+    manager.on_heartbeat(create_heartbeat(1), START);
 
-    yonetici.refresh_status(BASLANGIC + 3000ms);
+    manager.refresh_status(START + 3000ms);
 
-    EXPECT_EQ(yonetici.status_of(1), swarm::PeerStatus::OFFLINE);
+    EXPECT_EQ(manager.status_of(1), swarm::PeerStatus::OFFLINE);
 }
 
 // ---------------------------------------------------------------------------
@@ -119,46 +119,46 @@ TEST(PeerManager, TimeoutDolunsaOfflineOlur)
 
 TEST(PeerManager, TanimadigiPeerinTelemetrisiReddedilir)
 {
-    swarm::PeerManager yonetici;
+    swarm::PeerManager manager;
 
     // Heartbeat ile tanışmadığımız bir drone'un telemetrisi tabloya
     // kayıt AÇMAMALI.
-    EXPECT_FALSE(yonetici.on_telemetry(telemetri_olustur(9, 1), BASLANGIC));
-    EXPECT_EQ(yonetici.peer_count(), 0u);
+    EXPECT_FALSE(manager.on_telemetry(create_telemetry(9, 1), START));
+    EXPECT_EQ(manager.peer_count(), 0u);
 }
 
 TEST(PeerManager, ArtanSeqNumKabulEdilir)
 {
-    swarm::PeerManager yonetici;
-    yonetici.on_heartbeat(heartbeat_olustur(1), BASLANGIC);
+    swarm::PeerManager manager;
+    manager.on_heartbeat(create_heartbeat(1), START);
 
-    EXPECT_TRUE(yonetici.on_telemetry(telemetri_olustur(1, 1), BASLANGIC));
-    EXPECT_TRUE(yonetici.on_telemetry(telemetri_olustur(1, 2), BASLANGIC));
-    EXPECT_TRUE(yonetici.on_telemetry(telemetri_olustur(1, 10), BASLANGIC));
+    EXPECT_TRUE(manager.on_telemetry(create_telemetry(1, 1), START));
+    EXPECT_TRUE(manager.on_telemetry(create_telemetry(1, 2), START));
+    EXPECT_TRUE(manager.on_telemetry(create_telemetry(1, 10), START));
 
-    EXPECT_EQ(yonetici.find(1)->info.last_seen_seq, 10u);
+    EXPECT_EQ(manager.find(1)->info.last_seen_seq, 10u);
 }
 
 TEST(PeerManager, GeriKalanSeqNumReddedilir)
 {
     // UDP paket sırasını bozabilir: 10'dan sonra gelen 7 BAYATtır, atılmalı.
-    swarm::PeerManager yonetici;
-    yonetici.on_heartbeat(heartbeat_olustur(1), BASLANGIC);
-    ASSERT_TRUE(yonetici.on_telemetry(telemetri_olustur(1, 10), BASLANGIC));
+    swarm::PeerManager manager;
+    manager.on_heartbeat(create_heartbeat(1), START);
+    ASSERT_TRUE(manager.on_telemetry(create_telemetry(1, 10), START));
 
-    EXPECT_FALSE(yonetici.on_telemetry(telemetri_olustur(1, 7), BASLANGIC));
+    EXPECT_FALSE(manager.on_telemetry(create_telemetry(1, 7), START));
 
     // Reddedilen paket sayacı geriye çekmemeli.
-    EXPECT_EQ(yonetici.find(1)->info.last_seen_seq, 10u);
+    EXPECT_EQ(manager.find(1)->info.last_seen_seq, 10u);
 }
 
 TEST(PeerManager, AyniSeqNumTekrariReddedilir)
 {
-    swarm::PeerManager yonetici;
-    yonetici.on_heartbeat(heartbeat_olustur(1), BASLANGIC);
-    ASSERT_TRUE(yonetici.on_telemetry(telemetri_olustur(1, 5), BASLANGIC));
+    swarm::PeerManager manager;
+    manager.on_heartbeat(create_heartbeat(1), START);
+    ASSERT_TRUE(manager.on_telemetry(create_telemetry(1, 5), START));
 
-    EXPECT_FALSE(yonetici.on_telemetry(telemetri_olustur(1, 5), BASLANGIC));
+    EXPECT_FALSE(manager.on_telemetry(create_telemetry(1, 5), START));
 }
 
 // ---------------------------------------------------------------------------
@@ -167,29 +167,29 @@ TEST(PeerManager, AyniSeqNumTekrariReddedilir)
 
 TEST(PeerManager, RestartSonrasiSeqSifirlanirVeTazeVeriKabulEdilir)
 {
-    swarm::PeerManager yonetici{3000ms};
+    swarm::PeerManager manager{3000ms};
 
     // 1) Drone ayakta, telemetri sayacı yükseliyor.
-    yonetici.on_heartbeat(heartbeat_olustur(1), BASLANGIC);
-    ASSERT_TRUE(yonetici.on_telemetry(telemetri_olustur(1, 5000), BASLANGIC));
-    ASSERT_EQ(yonetici.find(1)->info.last_seen_seq, 5000u);
+    manager.on_heartbeat(create_heartbeat(1), START);
+    ASSERT_TRUE(manager.on_telemetry(create_telemetry(1, 5000), START));
+    ASSERT_EQ(manager.find(1)->info.last_seen_seq, 5000u);
 
     // 2) Drone susuyor; zaman aşımı dolunca OFFLINE'a düşüyor.
-    yonetici.refresh_status(BASLANGIC + 5s);
-    ASSERT_EQ(yonetici.status_of(1), swarm::PeerStatus::OFFLINE);
+    manager.refresh_status(START + 5s);
+    ASSERT_EQ(manager.status_of(1), swarm::PeerStatus::OFFLINE);
 
     // 3) Drone yeniden başlıyor ve heartbeat yolluyor.
     //    OFFLINE -> ONLINE geçişi burada olur ve sayaç sıfırlanır.
-    yonetici.on_heartbeat(heartbeat_olustur(1), BASLANGIC + 6s);
+    manager.on_heartbeat(create_heartbeat(1), START + 6s);
 
-    EXPECT_EQ(yonetici.status_of(1), swarm::PeerStatus::ONLINE);
-    EXPECT_EQ(yonetici.find(1)->info.last_seen_seq, 0u);
+    EXPECT_EQ(manager.status_of(1), swarm::PeerStatus::ONLINE);
+    EXPECT_EQ(manager.find(1)->info.last_seen_seq, 0u);
 
     // 4) Restart sonrası taze telemetri 1'den başlıyor. Sayaç sıfırlanmamış
     //    olsaydı bu paket "5000'den küçük" diye reddedilir ve drone bir daha
     //    hiç görünmezdi. İşte bu testin koruduğu hata budur.
-    EXPECT_TRUE(yonetici.on_telemetry(telemetri_olustur(1, 1), BASLANGIC + 6s));
-    EXPECT_EQ(yonetici.find(1)->info.last_seen_seq, 1u);
+    EXPECT_TRUE(manager.on_telemetry(create_telemetry(1, 1), START + 6s));
+    EXPECT_EQ(manager.find(1)->info.last_seen_seq, 1u);
 }
 
 TEST(PeerManager, OnlineKalanPeerinSeqSayaciSifirlanmaz)
@@ -197,31 +197,31 @@ TEST(PeerManager, OnlineKalanPeerinSeqSayaciSifirlanmaz)
     // Ters kontrol: peer hiç OFFLINE'a düşmediyse, gelen her heartbeat
     // sayacı sıfırlamamalı. Aksi halde her heartbeat bayatlık korumasını
     // silerdi.
-    swarm::PeerManager yonetici{3000ms};
+    swarm::PeerManager manager{3000ms};
 
-    yonetici.on_heartbeat(heartbeat_olustur(1), BASLANGIC);
-    ASSERT_TRUE(yonetici.on_telemetry(telemetri_olustur(1, 100), BASLANGIC));
+    manager.on_heartbeat(create_heartbeat(1), START);
+    ASSERT_TRUE(manager.on_telemetry(create_telemetry(1, 100), START));
 
-    yonetici.on_heartbeat(heartbeat_olustur(1), BASLANGIC + 1s);
+    manager.on_heartbeat(create_heartbeat(1), START + 1s);
 
-    EXPECT_EQ(yonetici.find(1)->info.last_seen_seq, 100u);
+    EXPECT_EQ(manager.find(1)->info.last_seen_seq, 100u);
 }
 
 TEST(PeerManager, BirPeerinOfflineOlmasiDigeriniEtkilemez)
 {
-    swarm::PeerManager yonetici{3000ms};
+    swarm::PeerManager manager{3000ms};
 
-    yonetici.on_heartbeat(heartbeat_olustur(1), BASLANGIC);
-    yonetici.on_heartbeat(heartbeat_olustur(2), BASLANGIC);
-    ASSERT_TRUE(yonetici.on_telemetry(telemetri_olustur(2, 50), BASLANGIC));
+    manager.on_heartbeat(create_heartbeat(1), START);
+    manager.on_heartbeat(create_heartbeat(2), START);
+    ASSERT_TRUE(manager.on_telemetry(create_telemetry(2, 50), START));
 
     // Sadece 2 numara heartbeat yollamaya devam ediyor.
-    yonetici.on_heartbeat(heartbeat_olustur(2), BASLANGIC + 2s);
-    yonetici.refresh_status(BASLANGIC + 4s);
+    manager.on_heartbeat(create_heartbeat(2), START + 2s);
+    manager.refresh_status(START + 4s);
 
-    EXPECT_EQ(yonetici.status_of(1), swarm::PeerStatus::OFFLINE);
-    EXPECT_EQ(yonetici.status_of(2), swarm::PeerStatus::ONLINE);
-    EXPECT_EQ(yonetici.find(2)->info.last_seen_seq, 50u);
+    EXPECT_EQ(manager.status_of(1), swarm::PeerStatus::OFFLINE);
+    EXPECT_EQ(manager.status_of(2), swarm::PeerStatus::ONLINE);
+    EXPECT_EQ(manager.find(2)->info.last_seen_seq, 50u);
 }
 
 // ---------------------------------------------------------------------------
@@ -235,62 +235,62 @@ TEST(PeerManager, BirPeerinOfflineOlmasiDigeriniEtkilemez)
 
 TEST(PeerManager, HizliRestartBuyukGeriSicramaylaTespitEdilir)
 {
-    swarm::PeerManager yonetici{3000ms};
-    yonetici.on_heartbeat(heartbeat_olustur(1), BASLANGIC);
+    swarm::PeerManager manager{3000ms};
+    manager.on_heartbeat(create_heartbeat(1), START);
 
     // Sayaç epeyce ilerlemiş.
-    ASSERT_TRUE(yonetici.on_telemetry(telemetri_olustur(1, 5000), BASLANGIC));
+    ASSERT_TRUE(manager.on_telemetry(create_telemetry(1, 5000), START));
 
     // Drone 1 saniyede yeniden başlıyor: OFFLINE'a hiç düşmüyor.
-    yonetici.on_heartbeat(heartbeat_olustur(1), BASLANGIC + 1s);
-    ASSERT_EQ(yonetici.status_of(1), swarm::PeerStatus::ONLINE);
-    ASSERT_EQ(yonetici.find(1)->info.last_seen_seq, 5000u)
+    manager.on_heartbeat(create_heartbeat(1), START + 1s);
+    ASSERT_EQ(manager.status_of(1), swarm::PeerStatus::ONLINE);
+    ASSERT_EQ(manager.find(1)->info.last_seen_seq, 5000u)
             << "OFFLINE'a dusmedigi icin sayac sifirlanmamis olmali";
 
     // Restart sonrası taze telemetri 1'den başlıyor. Büyük geri sıçrama
     // tespit edilip takip sıfırlanmalı ve paket KABUL edilmeli.
-    bool yeni_akis = false;
-    EXPECT_TRUE(yonetici.on_telemetry(telemetri_olustur(1, 1), BASLANGIC + 1s, &yeni_akis));
-    EXPECT_TRUE(yeni_akis);
-    EXPECT_EQ(yonetici.find(1)->info.last_seen_seq, 1u);
+    bool new_stream = false;
+    EXPECT_TRUE(manager.on_telemetry(create_telemetry(1, 1), START + 1s, &new_stream));
+    EXPECT_TRUE(new_stream);
+    EXPECT_EQ(manager.find(1)->info.last_seen_seq, 1u);
 }
 
 TEST(PeerManager, KucukGeriSicramaHalaBayatSayilir)
 {
     // Restart koruması, asıl bayatlık korumasını ZAYIFLATMAMALI. UDP'de
     // sıra bozulması birkaç paketliktir; böyle bir paket hâlâ atılmalı.
-    swarm::PeerManager yonetici{3000ms};
-    yonetici.on_heartbeat(heartbeat_olustur(1), BASLANGIC);
-    ASSERT_TRUE(yonetici.on_telemetry(telemetri_olustur(1, 5000), BASLANGIC));
+    swarm::PeerManager manager{3000ms};
+    manager.on_heartbeat(create_heartbeat(1), START);
+    ASSERT_TRUE(manager.on_telemetry(create_telemetry(1, 5000), START));
 
-    EXPECT_FALSE(yonetici.on_telemetry(telemetri_olustur(1, 4990), BASLANGIC));
-    EXPECT_EQ(yonetici.find(1)->info.last_seen_seq, 5000u);
+    EXPECT_FALSE(manager.on_telemetry(create_telemetry(1, 4990), START));
+    EXPECT_EQ(manager.find(1)->info.last_seen_seq, 5000u);
 }
 
 TEST(PeerManager, RestartEsigiSinirindaDavranis)
 {
-    swarm::PeerManager yonetici{3000ms};
-    yonetici.on_heartbeat(heartbeat_olustur(1), BASLANGIC);
-    ASSERT_TRUE(yonetici.on_telemetry(telemetri_olustur(1, 1000), BASLANGIC));
+    swarm::PeerManager manager{3000ms};
+    manager.on_heartbeat(create_heartbeat(1), START);
+    ASSERT_TRUE(manager.on_telemetry(create_telemetry(1, 1000), START));
 
     // Eşik kadar geri: henüz restart sayılmaz, bayat kabul edilir.
-    const uint32_t esik = swarm::PeerManager::RESTART_TESPIT_ESIGI;
-    EXPECT_FALSE(yonetici.on_telemetry(telemetri_olustur(1, 1000 - esik), BASLANGIC));
+    const uint32_t threshold = swarm::PeerManager::RESTART_DETECTION_THRESHOLD;
+    EXPECT_FALSE(manager.on_telemetry(create_telemetry(1, 1000 - threshold), START));
 
     // Eşiğin bir fazlası kadar geri: restart sayılır, kabul edilir.
-    EXPECT_TRUE(yonetici.on_telemetry(telemetri_olustur(1, 1000 - esik - 1), BASLANGIC));
+    EXPECT_TRUE(manager.on_telemetry(create_telemetry(1, 1000 - threshold - 1), START));
 }
 
 TEST(PeerManager, IlkTelemetriYeniAkisOlarakIsaretlenir)
 {
-    swarm::PeerManager yonetici;
-    yonetici.on_heartbeat(heartbeat_olustur(1), BASLANGIC);
+    swarm::PeerManager manager;
+    manager.on_heartbeat(create_heartbeat(1), START);
 
-    bool yeni_akis = false;
-    EXPECT_TRUE(yonetici.on_telemetry(telemetri_olustur(1, 1), BASLANGIC, &yeni_akis));
-    EXPECT_TRUE(yeni_akis);
+    bool new_stream = false;
+    EXPECT_TRUE(manager.on_telemetry(create_telemetry(1, 1), START, &new_stream));
+    EXPECT_TRUE(new_stream);
 
     // İkinci paket yeni akış değil.
-    EXPECT_TRUE(yonetici.on_telemetry(telemetri_olustur(1, 2), BASLANGIC, &yeni_akis));
-    EXPECT_FALSE(yeni_akis);
+    EXPECT_TRUE(manager.on_telemetry(create_telemetry(1, 2), START, &new_stream));
+    EXPECT_FALSE(new_stream);
 }

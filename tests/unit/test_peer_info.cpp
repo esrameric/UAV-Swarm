@@ -10,8 +10,8 @@
 
 TEST(PeerInfo, VarsayilanDegerlerGuvenli)
 {
-    // Hiçbir alan elle doldurulmadan oluşturulan bir PeerInfo, "çöp değer"
-    // içermemeli; her alanın anlamlı bir başlangıcı olmalı.
+    // Hiçbir alan elle doldurulmadan oluşturulan bir PeerInfo, "uninitialized"
+    // bir değer içermemeli; her alanın anlamlı bir başlangıcı olmalı.
     const swarm::PeerInfo peer;
 
     EXPECT_EQ(peer.drone_id, 0u);
@@ -58,10 +58,10 @@ TEST(PeerInfo, SifirDisiTumSwarmIdDegerleriGecerliSayilir)
     // kimliğidir.
     swarm::PeerInfo peer;
 
-    for (int deger = 1; deger <= 255; ++deger)
+    for (int value = 1; value <= 255; ++value)
     {
-        peer.swarm_id = static_cast<uint8_t>(deger);
-        EXPECT_TRUE(peer.is_in_swarm()) << "swarm_id = " << deger;
+        peer.swarm_id = static_cast<uint8_t>(value);
+        EXPECT_TRUE(peer.is_in_swarm()) << "swarm_id = " << value;
     }
 }
 
@@ -86,8 +86,8 @@ TEST(PeerInfo, HeartbeatZamaniAliciSaatiyleGuncellenir)
 
     peer.last_heartbeat_local = std::chrono::steady_clock::now();
 
-    const auto sonra = std::chrono::steady_clock::now();
+    const auto after = std::chrono::steady_clock::now();
 
     EXPECT_GE(peer.last_heartbeat_local, once);
-    EXPECT_LE(peer.last_heartbeat_local, sonra);
+    EXPECT_LE(peer.last_heartbeat_local, after);
 }

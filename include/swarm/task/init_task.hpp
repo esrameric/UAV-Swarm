@@ -19,7 +19,7 @@ private:
     // is_finished() `const` olduğu ve `now` almadığı için, "bittim mi?"
     // kararı run() içinde verilip burada saklanır. Bu kalıp tüm task'larda
     // aynıdır: run() durumu ilerletir, is_finished() sadece okur.
-    bool tamamlandi_ = false;
+    bool finished_ = false;
 };
 
 }  // namespace swarm
