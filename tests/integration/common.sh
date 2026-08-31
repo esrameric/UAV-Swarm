@@ -152,6 +152,27 @@ dogrula_log_yok() {
     fi
 }
 
+# Bir desenin SAYISI verilen değerin üstüne çıkana kadar bekler.
+#   bekle_sayac_artsin <servis> <desen> <onceki_sayi> <azami_saniye>
+#
+# Neden ayrı bir yardımcı: bekle_log() deseni ZATEN varsa anında döner.
+# "Bu satır bir kez daha yazılmalı" demek istediğimizde bekle_log işe
+# yaramaz — eski satırı bulup hemen başarılı sayar ve yenisi için hiç
+# beklemez. (Bu, Faz 6.5 testinin düzensiz düşmesinin sebebiydi.)
+bekle_sayac_artsin() {
+    local servis="$1" desen="$2" onceki="$3" azami="$4"
+    local gecen=0
+
+    while [ "$gecen" -lt "$azami" ]; do
+        if [ "$(log_say "$servis" "$desen")" -gt "$onceki" ]; then
+            return 0
+        fi
+        sleep 1
+        gecen=$((gecen + 1))
+    done
+    return 1
+}
+
 # Bir desenin logda kaç kez geçtiğini sayar.
 log_say() {
     local servis="$1" desen="$2"

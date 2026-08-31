@@ -15,11 +15,18 @@
 #       geçişi last_seen_seq'i sıfırlar. Planın (Bölüm 3.5) tanımladığı
 #       mekanizma budur.
 #
-#    B) HIZLI RESTART — düğüm 3 saniyeden kısa sürede geri gelir; peer HİÇ
-#       OFFLINE görünmez, dolayısıyla A'daki sıfırlama hiç tetiklenmez.
-#       Bu durum planda ele alınmamıştı ve gerçek bir açıktı: taze veri
-#       sessizce reddediliyordu. Büyük geri sıçrama tespiti (bkz.
-#       PeerManager::RESTART_TESPIT_ESIGI) bu boşluğu kapatıyor.
+#    B) `docker restart` ile yeniden başlatma. Kesinti süresi host'un hızına
+#       göre 3 saniyenin altında da üstünde de kalabilir; yani A'daki
+#       OFFLINE -> ONLINE yolu ya devreye girer ya girmez. Test her iki
+#       durumda da geçerli olan asıl gereksinimi doğrular: taze telemetri
+#       KABUL edilmeli.
+#
+#       Kesintinin 3 saniyenin ALTINDA kaldığı saf "hızlı restart" durumu —
+#       peer'ın hiç OFFLINE görünmediği, dolayısıyla yalnızca büyük geri
+#       sıçrama tespitinin (PeerManager::RESTART_TESPIT_ESIGI) kurtardığı
+#       durum — konteyner başlatma süresine bağlı olmadan deterministik
+#       şekilde birim testlerinde sınanıyor (test_peer_manager.cpp,
+#       "HizliRestartBuyukGeriSicramaylaTespitEdilir").
 #
 #  Kullanım:  bash tests/integration/test_05_seq_sifirlama.sh
 # =============================================================================
@@ -64,17 +71,14 @@ dogrula_log drone_scout "\[peer\] geri dondu: id=2 \(seq takibi sifirlandi\)" 45
 
 # Sayaç sıfırlanmasaydı restart sonrası gelen düşük seq'ler "bayat" diye
 # reddedilir ve bu satır bir daha hiç görünmezdi.
-sonraki_akis_beklenen=$((onceki_akis + 1))
-if bekle_log drone_scout "\[telemetry\] id=2 akisi basladi" 45; then
-    yeni_akis="$(log_say drone_scout '\[telemetry\] id=2 akisi basladi')"
-    echo "     'akisi basladi' satiri (restart sonrasi): $yeni_akis"
-    if [ "$yeni_akis" -ge "$sonraki_akis_beklenen" ]; then
-        gecti "Taze telemetri KABUL edildi (akış yeniden başladı)"
-    else
-        kaldi "Restart sonrası yeni telemetri akışı görülmedi - taze veri 'bayat' diye reddedilmiş olabilir"
-    fi
+# DİKKAT: bekle_log burada YANLIŞ araç olurdu — desen zaten var (restart
+# öncesinden) ve anında başarılı döner. "Bir kez daha yazılmalı" demek için
+# sayacın artmasını beklemek gerekiyor.
+if bekle_sayac_artsin drone_scout "\[telemetry\] id=2 akisi basladi" "$onceki_akis" 45; then
+    echo "     'akisi basladi' satiri (restart sonrasi): $(log_say drone_scout '\[telemetry\] id=2 akisi basladi')"
+    gecti "Taze telemetri KABUL edildi (akış yeniden başladı)"
 else
-    kaldi "Restart sonrası telemetri akışı hiç başlamadı"
+    kaldi "Restart sonrası yeni telemetri akışı görülmedi - taze veri 'bayat' diye reddedilmiş olabilir"
 fi
 
 dogrula_log drone_striker_1 "\[peer\] yeni peer: id=1" 45 \
@@ -83,7 +87,7 @@ dogrula_log drone_striker_1 "\[peer\] yeni peer: id=1" 45 \
 # ---------------------------------------------------------------------------
 #  B) Hızlı restart — peer OFFLINE'a hiç düşmüyor
 # ---------------------------------------------------------------------------
-baslik "B) Hizli restart (peer OFFLINE'a hic dusmuyor)"
+baslik "B) docker restart ile yeniden baslatma"
 
 # Sayacin restart tespit esigini (20 paket) RAHATCA asmasi gerekiyor.
 # 10 Hz'de 12 saniye ~120 paket eder; esigin 6 katindan fazla pay birakiyoruz
@@ -95,16 +99,21 @@ onceki_akis="$(log_say drone_scout '\[telemetry\] id=2 akisi basladi')"
 onceki_kayip="$(log_say drone_scout '\[peer\] kayip peer tespit edildi')"
 echo "     'akisi basladi' satiri (hizli restart oncesi): $onceki_akis"
 
-echo "-- docker restart: drone_striker_1 (3 saniyeden kisa kesinti)"
+echo "-- docker restart: drone_striker_1"
 compose restart -t 0 drone_striker_1 >/dev/null 2>&1
 
-if bekle_log drone_scout "\[telemetry\] id=2 akisi basladi" 45 && \
-   [ "$(log_say drone_scout '\[telemetry\] id=2 akisi basladi')" -gt "$onceki_akis" ]; then
-    yeni_akis="$(log_say drone_scout '\[telemetry\] id=2 akisi basladi')"
-    echo "     'akisi basladi' satiri (hizli restart sonrasi): $yeni_akis"
-    gecti "Hızlı restart sonrası taze telemetri KABUL edildi (büyük geri sıçrama tespiti)"
+if bekle_sayac_artsin drone_scout "\[telemetry\] id=2 akisi basladi" "$onceki_akis" 60; then
+    echo "     'akisi basladi' satiri (restart sonrasi): $(log_say drone_scout '\[telemetry\] id=2 akisi basladi')"
+    gecti "Restart sonrası taze telemetri KABUL edildi"
 else
-    kaldi "Hızlı restart sonrası taze telemetri reddedildi - sayaç sıfırlanmamış"
+    kaldi "Restart sonrası taze telemetri reddedildi - sayaç sıfırlanmamış"
+fi
+
+# Hangi yolun devreye girdiğini bilgi olarak raporluyoruz (ikisi de geçerli).
+if [ "$(log_say drone_scout '\[peer\] kayip peer tespit edildi')" -gt "$onceki_kayip" ]; then
+    echo "     yol: kesinti 3 sn'yi asti -> OFFLINE -> ONLINE sifirlamasi"
+else
+    echo "     yol: kesinti 3 sn'nin altinda kaldi -> buyuk geri sicrama tespiti"
 fi
 
 sonucu_bildir
