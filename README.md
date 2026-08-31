@@ -148,20 +148,60 @@ docker compose -f docker/docker-compose.yml down
 
 ```
 uav-swarm/
-├── idl/                  # Fast DDS mesaj tanımları (.idl)
-├── include/swarm/        # Başlık (header) dosyaları
-│   └── task/             #   Task hiyerarşisi başlıkları
-├── src/                  # Kaynak (.cpp) dosyaları
-│   └── task/             #   Task hiyerarşisi gövdeleri
-├── config/               # Fast DDS QoS XML profilleri
-├── docker/               # Dockerfile + docker-compose.yml
+├── idl/                       # Fast DDS mesaj tanımları (.idl)
+│   ├── SwarmEnums.idl         #   NodeType, DroneRole, TaskType, Vote
+│   ├── Heartbeat.idl
+│   ├── Telemetry.idl
+│   ├── TaskAllocation.idl
+│   └── Consensus.idl
+├── include/swarm/             # Başlık (header) dosyaları
+│   ├── task/                  #   Task hiyerarşisi (soyut Task + 9 child)
+│   ├── peer_info.hpp          #   Başka bir düğüm hakkında bildiklerimiz
+│   ├── peer_manager.hpp       #   Peer table + canlılık/bayatlık kuralları
+│   ├── drone_state.hpp        #   Kendi uçuş durumumuz
+│   ├── command.hpp            #   Komut kuyruğunun eleman tipi
+│   ├── swarm_manager.hpp      #   Singleton, 3 thread, Task Engine
+│   ├── task_allocation_engine.hpp
+│   ├── gcs_controller.hpp     #   GCS'in görev akışı
+│   ├── fastdds_wrapper.hpp    #   Tüm DDS ayrıntıları burada kapalı
+│   ├── config_from_env.hpp    #   Ortam değişkeni okuma
+│   ├── enum_names.hpp         #   Enum -> log metni
+│   └── log.hpp
+├── src/                       # Kaynak (.cpp) dosyaları
+│   ├── task/
+│   └── main.cpp               #   Giriş noktası (tek binary, dört düğüm)
+├── docker/
+│   ├── Dockerfile             #   Çok aşamalı (builder + runtime)
+│   ├── docker-compose.yml     #   4 container, custom bridge, sabit IP
+│   └── ca-certificates/       #   (opsiyonel) kurumsal kök sertifikalar
 ├── tests/
-│   ├── unit/             # GoogleTest birim testleri
-│   └── integration/      # docker-compose tabanlı SITL entegrasyon testleri
-├── tools/                # Ortam kurulum/doğrulama script'leri (Faz 0)
-│   └── multicast_check/  #   multicast sondaları (Faz 0.5)
+│   ├── unit/                  # GoogleTest birim testleri
+│   └── integration/           # docker-compose tabanlı SITL testleri
+│       └── overrides/         #   senaryoya özel compose ezmeleri
+├── tools/                     # Kurulum ve doğrulama script'leri
+│   └── multicast_check/       #   multicast sondaları (Faz 0.5)
 └── CMakeLists.txt
 ```
+
+## Entegrasyon Testleri (SITL)
+
+Hepsi `docker-compose` ile 4 container ayağa kaldırıp **log çıktısını
+otomatik doğrular**; elle gözlem yoktur. Her biri sonunda
+`SONUC: BASARILI` / `SONUC: BASARISIZ` basar ve buna uygun çıkış kodu döner.
+
+```bash
+bash tools/build_docker_image.sh
+bash tests/integration/run_all.sh
+```
+
+| Script | Ne doğrular |
+|---|---|
+| `test_01_discovery.sh` | 4 düğüm gerçek ağda birbirini buluyor mu, roller doğru öğreniliyor mu, her container ayrı IP'de mi |
+| `test_02_consensus.sh` | 2PC akışının tamamı: teklif → 3/3 ACK → COMMITTED → emir yayını (bu sırayla) |
+| `test_03_consensus_iptal.sh` | NACK ve 5 sn zaman aşımı yollarının ikisi de görevi iptal ediyor mu, emir yayınlanmıyor mu |
+| `test_04_failsafe.sh` | `docker stop` sonrası kayıp fark ediliyor ve FailSafe → Landing dizisi işliyor mu |
+| `test_05_seq_sifirlama.sh` | Yavaş ve hızlı restart sonrası taze telemetri kabul ediliyor mu |
+| `test_06_rol_ayrimi.sh` | Aynı emir role göre farklı göreve dönüşüyor mu (Scout → arama, Striker → hedefe gidiş) |
 
 ---
 
