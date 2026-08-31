@@ -641,6 +641,17 @@ TEST(TaskAllocationEngine, RolEslesmesiniDogruKarar)
 
 namespace {
 
+// GCS kimliğiyle hazırlanmış temiz bir SwarmManager (bu dosyaya özel).
+swarm::SwarmManager& gcs_olarak_hazirla_yerel()
+{
+    swarm::SwarmManager& yonetici = swarm::SwarmManager::get_instance();
+    swarm::SwarmConfig config;
+    config.drone_id = 0;
+    config.node_type = swarm::NodeType::GCS;
+    yonetici.init(config);
+    return yonetici;
+}
+
 swarm::Heartbeat peer_heartbeat_olustur(uint8_t drone_id, swarm::DroneRole rol)
 {
     swarm::Heartbeat kalp_atisi;
@@ -933,4 +944,55 @@ TEST(TaskEngine, AcilDurumdaFailSafeSonrasiLandingTipiKaydedilir)
     // FailSafe değerlendirme süresi (1 sn) dolunca iniş başlamalı.
     yonetici.task_engine_adimi(BASLANGIC + 6s);
     EXPECT_EQ(yonetici.current_task_type(), swarm::TaskType::LANDING);
+}
+
+TEST(TaskEngine, AyniTurdaGelenTumOylarConsensusuCommitEder)
+{
+    // HATA GEÇMİŞİ (entegrasyon testinin ortaya çıkardığı yarış):
+    // Task Engine komutları aktif görevi başlatmadan ÖNCE işliyordu.
+    // ConsensusTask::on_enter() sonucu PENDING'e sıfırladığı için, aynı
+    // turda gelen tüm ACK'lerle verilmiş COMMITTED kararı siliniyor ve
+    // oylama 5 saniye sonra hatalı biçimde zaman aşımına düşüyordu.
+    swarm::SwarmManager& yonetici = gcs_olarak_hazirla_yerel();
+
+    yonetici.request_consensus(500, {1, 2, 3});
+
+    // Oylar, görev daha kuyruğa girmeden komut kuyruğuna düşüyor —
+    // gerçek sistemde ağ, Task Engine'in 20 ms'lik turundan hızlı davranıyor.
+    for (uint8_t drone_id : {1, 2, 3})
+    {
+        swarm::Consensus oy;
+        oy.transaction_id(500);
+        oy.sender_id(drone_id);
+        oy.vote(swarm::Vote::ACK);
+        yonetici.add_command(swarm::Command::consensus_oyu(oy));
+    }
+
+    yonetici.task_engine_adimi(BASLANGIC);
+
+    const swarm::SwarmManager::ConsensusSonucu sonuc = yonetici.last_consensus_result();
+    ASSERT_TRUE(sonuc.gecerli);
+    EXPECT_EQ(sonuc.transaction_id, 500u);
+    EXPECT_EQ(sonuc.sonuc, swarm::ConsensusResult::COMMITTED);
+    EXPECT_FALSE(sonuc.timeout_ile_iptal);
+}
+
+TEST(TaskEngine, AyniTurdaGelenNackConsensusuIptalEder)
+{
+    swarm::SwarmManager& yonetici = gcs_olarak_hazirla_yerel();
+
+    yonetici.request_consensus(501, {1, 2});
+
+    swarm::Consensus oy;
+    oy.transaction_id(501);
+    oy.sender_id(1);
+    oy.vote(swarm::Vote::NACK);
+    yonetici.add_command(swarm::Command::consensus_oyu(oy));
+
+    yonetici.task_engine_adimi(BASLANGIC);
+
+    const swarm::SwarmManager::ConsensusSonucu sonuc = yonetici.last_consensus_result();
+    ASSERT_TRUE(sonuc.gecerli);
+    EXPECT_EQ(sonuc.sonuc, swarm::ConsensusResult::ABORTED);
+    EXPECT_FALSE(sonuc.timeout_ile_iptal);
 }

@@ -69,8 +69,17 @@ public:
     //
     // Çözüm: seq numarası BÜYÜK bir sıçramayla geriye gittiyse bu, ağ
     // kaynaklı sıra bozulması değil, göndericinin yeniden başlamasıdır.
-    // UDP'de sıra bozulması birkaç paketliktir; yüzlerce paketlik değil.
-    static constexpr uint32_t RESTART_TESPIT_ESIGI = 100;
+    //
+    // Eşik neden 20? Telemetri ~10 Hz yayınlanıyor, yani 20 paket ≈ 2 saniyelik
+    // veri. LAN üzerinde UDP sıra bozulması birkaç paketliktir — 2 saniye
+    // geriden gelen bir paket gerçekçi değildir. Eşiği gereğinden yüksek
+    // tutmak (örn. 100 = 10 saniye) korumayı ETKİSİZ kılıyordu: yeni başlamış
+    // bir düğümün sayacı henüz eşiğin altındayken restart hiç tespit
+    // edilemiyordu.
+    //
+    // Bu eşik asıl bayatlık korumasını zayıflatmaz: küçük geri sıçramalar
+    // (sıra bozulması) hâlâ `seq <= last_seen_seq` kuralıyla atılır.
+    static constexpr uint32_t RESTART_TESPIT_ESIGI = 20;
 
     // `explicit`: tek parametreli kurucuların istenmeyen örtük (implicit)
     // dönüşüm yapmasını engeller. Bu olmasaydı bir fonksiyona yanlışlıkla

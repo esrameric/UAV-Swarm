@@ -85,8 +85,11 @@ dogrula_log drone_striker_1 "\[peer\] yeni peer: id=1" 45 \
 # ---------------------------------------------------------------------------
 baslik "B) Hizli restart (peer OFFLINE'a hic dusmuyor)"
 
-echo "-- sayacin yeniden ilerlemesi icin 8 saniye bekleniyor"
-sleep 8
+# Sayacin restart tespit esigini (20 paket) RAHATCA asmasi gerekiyor.
+# 10 Hz'de 12 saniye ~120 paket eder; esigin 6 katindan fazla pay birakiyoruz
+# ki test zamanlama sansina bagli olmasin.
+echo "-- sayacin restart tespit esigini asmasi icin 12 saniye bekleniyor"
+sleep 12
 
 onceki_akis="$(log_say drone_scout '\[telemetry\] id=2 akisi basladi')"
 onceki_kayip="$(log_say drone_scout '\[peer\] kayip peer tespit edildi')"

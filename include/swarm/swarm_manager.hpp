@@ -274,6 +274,10 @@ private:
     // Aktif görev tipini kaydeder ve değiştiyse log'a yazar.
     void gorev_tipini_kaydet(TaskType yeni_tip);
 
+    // Kuyruğu çalıştırmaya hazır hâle getirir: boşsa IdleTask koyar, sonra
+    // baştaki görev henüz başlatılmadıysa başlatır.
+    void kuyrugu_hazirla(TimePoint now);
+
     // Kuyruğun başındaki görevi başlatır: on_enter() çağırır, bayrağı kurar
     // ve tipi kaydeder. Bu üçü HER ZAMAN birlikte yapılmalı; ayrı ayrı
     // yazıldıklarında biri unutulabiliyor.

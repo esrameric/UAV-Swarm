@@ -209,21 +209,26 @@ void SwarmManager::task_engine_adimi(TimePoint now)
         acil_durumda_ = false;
     }
 
-    // --- 2) Bekleyen komutları işle ------------------------------------------
+    // --- 2) Aktif görevi komutlardan ÖNCE başlat -----------------------------
+    //
+    // SIRA KRİTİK. Bir görev, kendisine yönelik ilk komutu işlemeden ÖNCE
+    // on_enter() ile başlatılmış olmalı.
+    //
+    // Neden: ConsensusTask::on_enter() zaman aşımı sayacını kurar ve sonucu
+    // PENDING'e çeker. Oylar on_enter'dan önce işlenirse, aynı turda gelen
+    // tüm ACK'lerle COMMITTED'e ulaşan bir oylamanın sonucu hemen ardından
+    // on_enter tarafından siliniyordu; oylama PENDING'de kalıp 5 saniye
+    // sonra hatalı biçimde zaman aşımına düşüyordu. Bu, drone'lar oy vermiş
+    // olmasına rağmen görevin iptal edilmesi demekti.
+    kuyrugu_hazirla(now);
+
+    // --- 3) Bekleyen komutları işle ------------------------------------------
     bekleyen_komutlari_isle(now);
 
-    // --- 3) Kuyruk boşsa IdleTask'a düş --------------------------------------
-    if (task_queue_.empty())
-    {
-        task_queue_.push_back(std::make_unique<IdleTask>(kendi_durumu_));
-        aktif_gorev_baslatildi_ = false;
-    }
-
-    // Bir görev aktif olduğunda on_enter() tam bir kez çağrılmalı.
-    if (!aktif_gorev_baslatildi_)
-    {
-        aktif_gorevi_baslat(now);
-    }
+    // Komut işleme kuyruğu değiştirmiş olabilir: yeni bir görev emri
+    // IdleTask'ı yerinden eder. Devralan görev de çalıştırılmadan önce
+    // başlatılmalı.
+    kuyrugu_hazirla(now);
 
     Task* aktif_gorev = task_queue_.front().get();
 
@@ -280,6 +285,21 @@ void SwarmManager::task_engine_adimi(TimePoint now)
 
     // Sıradaki görev varsa hemen başlat.
     aktif_gorevi_baslat(now);
+}
+
+void SwarmManager::kuyrugu_hazirla(TimePoint now)
+{
+    // Kuyruk boşaldıysa IdleTask'a düşülür (Bölüm 3.2).
+    if (task_queue_.empty())
+    {
+        task_queue_.push_back(std::make_unique<IdleTask>(kendi_durumu_));
+        aktif_gorev_baslatildi_ = false;
+    }
+
+    if (!aktif_gorev_baslatildi_)
+    {
+        aktif_gorevi_baslat(now);
+    }
 }
 
 void SwarmManager::aktif_gorevi_baslat(TimePoint now)

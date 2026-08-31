@@ -27,7 +27,22 @@ void ConsensusTask::on_enter(TimePoint now)
     if (oylar_.empty())
     {
         sonuc_ = ConsensusResult::COMMITTED;
+        return;
     }
+
+    // on_enter çağrılmadan ÖNCE oy gelmiş olabilir (ağ, Task Engine'in
+    // görevi başlatmasından hızlı davranabilir). Yukarıdaki sıfırlama böyle
+    // bir durumda verilmiş kararı silerdi; bu yüzden eldeki oyları burada
+    // yeniden değerlendiriyoruz.
+    for (const auto& giris : oylar_)
+    {
+        if (giris.second == Vote::NACK)
+        {
+            sonuc_ = ConsensusResult::ABORTED;
+            return;
+        }
+    }
+    sonucu_degerlendir();
 }
 
 void ConsensusTask::run(TimePoint now)

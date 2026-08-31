@@ -522,3 +522,61 @@ TEST(ConsensusTaskTimeout, SureDolduktanSonraGelenAckKarariDegistirmez)
 
     EXPECT_EQ(gorev.result(), swarm::ConsensusResult::ABORTED);
 }
+
+// ---------------------------------------------------------------------------
+//  on_enter'dan ÖNCE gelen oylar
+//
+//  HATA GEÇMİŞİ: Task Engine oyları on_enter()'dan önce işliyordu ve
+//  on_enter() sonucu PENDING'e sıfırlıyordu. Sonuç: aynı turda gelen tüm
+//  ACK'lerle COMMITTED'e ulaşan bir oylamanın kararı siliniyor, oylama
+//  PENDING'de kalıp 5 saniye sonra hatalı biçimde zaman aşımına düşüyordu.
+//  Yani drone'lar oy vermiş olmasına rağmen görev iptal ediliyordu.
+//
+//  Engine tarafındaki sıra düzeltildi; buradaki testler ConsensusTask'ın
+//  kendi tarafında da dayanıklı olduğunu garanti ediyor.
+// ---------------------------------------------------------------------------
+
+TEST(ConsensusTaskErkenOy, OnEnterOncesiGelenAckSilinmez)
+{
+    swarm::ConsensusTask gorev{1, {1, 2}, 5000ms};
+
+    // Oylar görev başlatılmadan önce geliyor.
+    gorev.on_vote(1, swarm::Vote::ACK);
+    gorev.on_vote(2, swarm::Vote::ACK);
+
+    gorev.on_enter(BASLANGIC);
+
+    EXPECT_EQ(gorev.result(), swarm::ConsensusResult::COMMITTED);
+    EXPECT_TRUE(gorev.is_finished());
+}
+
+TEST(ConsensusTaskErkenOy, OnEnterOncesiGelenNackSilinmez)
+{
+    swarm::ConsensusTask gorev{1, {1, 2}, 5000ms};
+
+    gorev.on_vote(1, swarm::Vote::NACK);
+
+    gorev.on_enter(BASLANGIC);
+
+    EXPECT_EQ(gorev.result(), swarm::ConsensusResult::ABORTED);
+    EXPECT_TRUE(gorev.mission_should_abort());
+    EXPECT_FALSE(gorev.timeout_ile_iptal_oldu());
+}
+
+TEST(ConsensusTaskErkenOy, EksikOyVarsaOnEnterSonrasiPendingKalir)
+{
+    // Erken oy koruması, kararı ACELEYE getirmemeli: yalnızca bir oy
+    // gelmişse oylama açık kalmalı.
+    swarm::ConsensusTask gorev{1, {1, 2}, 5000ms};
+
+    gorev.on_vote(1, swarm::Vote::ACK);
+    gorev.on_enter(BASLANGIC);
+
+    EXPECT_EQ(gorev.result(), swarm::ConsensusResult::PENDING);
+    EXPECT_FALSE(gorev.is_finished());
+
+    // Kalan oy gelince COMMITTED olmalı ve zaman aşımı sayacı on_enter'dan
+    // itibaren işlemeli.
+    gorev.on_vote(2, swarm::Vote::ACK);
+    EXPECT_EQ(gorev.result(), swarm::ConsensusResult::COMMITTED);
+}
