@@ -24,6 +24,9 @@ void clear_environment()
     ::unsetenv("ROLE");
     ::unsetenv("ROS_DOMAIN_ID");
     ::unsetenv("INITIAL_BATTERY");
+    ::unsetenv("FAULT_SILENT_CONSENSUS");
+    ::unsetenv("NODE_IP");
+    ::unsetenv("TCP_PORT");
 }
 
 void set_env(const char* name, const char* value)
@@ -222,4 +225,85 @@ TEST(ConfigFromEnv, GecersizAriziEnjeksiyonuDegeriHataVerir)
 
     EXPECT_FALSE(result.success);
     EXPECT_NE(result.error.find("FAULT_SILENT_CONSENSUS"), std::string::npos);
+}
+
+// ============================================================================
+//  Faz 7 — TCP taşıyıcısı yapılandırması (Bölüm 3.4)
+// ============================================================================
+
+TEST(ConfigFromEnv, NodeIpYokkenTcpKapalidir)
+{
+    // Geri çekilme yolu: düğüm kendi adresini bilmiyorsa TCP kurulmaz ve
+    // tüm topic'ler UDP'ye döner (bkz. V24.2).
+    clear_environment();
+
+    const swarm::ConfigResult result = swarm::read_config_from_env();
+
+    ASSERT_TRUE(result.success) << result.error;
+    EXPECT_FALSE(result.tcp.enabled);
+}
+
+TEST(ConfigFromEnv, NodeIpVerilinceTcpAcilir)
+{
+    clear_environment();
+    set_env("NODE_IP", "172.20.0.11");
+
+    const swarm::ConfigResult result = swarm::read_config_from_env();
+
+    ASSERT_TRUE(result.success) << result.error;
+    EXPECT_TRUE(result.tcp.enabled);
+    EXPECT_EQ(result.tcp.local_ip, "172.20.0.11");
+    EXPECT_EQ(result.tcp.listening_port, 5100u);   // varsayılan port
+}
+
+TEST(ConfigFromEnv, TcpPortuEzilebilir)
+{
+    // Birim testleri aynı makinede birden fazla düğüm çalıştırdığı için
+    // portun ezilebilmesi gerekiyor.
+    clear_environment();
+    set_env("NODE_IP", "127.0.0.1");
+    set_env("TCP_PORT", "6200");
+
+    const swarm::ConfigResult result = swarm::read_config_from_env();
+
+    ASSERT_TRUE(result.success) << result.error;
+    EXPECT_TRUE(result.tcp.enabled);
+    EXPECT_EQ(result.tcp.listening_port, 6200u);
+}
+
+TEST(ConfigFromEnv, SifirTcpPortuHataVerir)
+{
+    clear_environment();
+    set_env("NODE_IP", "127.0.0.1");
+    set_env("TCP_PORT", "0");
+
+    const swarm::ConfigResult result = swarm::read_config_from_env();
+
+    EXPECT_FALSE(result.success);
+    EXPECT_NE(result.error.find("TCP_PORT"), std::string::npos);
+}
+
+TEST(ConfigFromEnv, AralikDisiTcpPortuHataVerir)
+{
+    clear_environment();
+    set_env("NODE_IP", "127.0.0.1");
+    set_env("TCP_PORT", "70000");     // uint16_t üst sınırı 65535
+
+    const swarm::ConfigResult result = swarm::read_config_from_env();
+
+    EXPECT_FALSE(result.success);
+    EXPECT_NE(result.error.find("TCP_PORT"), std::string::npos);
+}
+
+TEST(ConfigFromEnv, TcpPortuNodeIpYokkenYoksayilir)
+{
+    // TCP_PORT tek başına TCP'yi açmaz; adres olmadan ilan edilecek bir
+    // locator kurulamaz.
+    clear_environment();
+    set_env("TCP_PORT", "6200");
+
+    const swarm::ConfigResult result = swarm::read_config_from_env();
+
+    ASSERT_TRUE(result.success) << result.error;
+    EXPECT_FALSE(result.tcp.enabled);
 }

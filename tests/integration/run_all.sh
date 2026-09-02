@@ -23,6 +23,7 @@ TESTS=(
     "test_04_failsafe.sh"
     "test_05_seq_sifirlama.sh"
     "test_06_rol_ayrimi.sh"
+    "test_07_tcp_tasiyici.sh"
 )
 
 elapsed=0

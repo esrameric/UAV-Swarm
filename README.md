@@ -97,8 +97,16 @@ Tek bir çalıştırılabilir (`swarm_node`) hem GCS hem de üç drone olarak
 | `ROLE` | `SCOUT` \| `STRIKER` (yalnızca `DRONE` için) | `SCOUT` |
 | `ROS_DOMAIN_ID` | 0–232 | `42` |
 | `INITIAL_BATTERY` | 0–100 | `100` |
+| `NODE_IP` | düğümün kendi IP'si | yok → TCP kapalı |
+| `TCP_PORT` | 1–65535 | `5100` |
 
-Yerelde dört düğümü ayrı terminallerde çalıştırmak için:
+`NODE_IP` verilirse `task_alloc` ve `consensus` topic'leri TCP taşıyıcısı
+üzerinden gider (Bölüm 3.4); verilmezse her şey UDP'de kalır. Düğüm yalnızca
+**kendi** adresini bilir — diğerlerininki hâlâ multicast keşfiyle öğrenilir.
+Aynı makinede birden fazla düğüm çalıştırırken `TCP_PORT` farklı olmalıdır.
+
+Yerelde dört düğümü ayrı terminallerde çalıştırmak için (TCP'yi de denemek
+isterseniz her satıra `NODE_IP=127.0.0.1 TCP_PORT=510X` ekleyin):
 
 ```bash
 NODE_TYPE=DRONE ROLE=SCOUT   DRONE_ID=1 ./build/swarm_node
@@ -202,6 +210,7 @@ bash tests/integration/run_all.sh
 | `test_04_failsafe.sh` | `docker stop` sonrası kayıp fark ediliyor ve FailSafe → Landing dizisi işliyor mu |
 | `test_05_seq_sifirlama.sh` | Yavaş ve hızlı restart sonrası taze telemetri kabul ediliyor mu |
 | `test_06_rol_ayrimi.sh` | Aynı emir role göre farklı göreve dönüşüyor mu (Scout → arama, Striker → hedefe gidiş) |
+| `test_07_tcp_tasiyici.sh` | `task_alloc`/`consensus` gerçekten TCP soketinden mi akıyor, heartbeat/telemetri UDP'de mi kalıyor |
 
 ---
 
@@ -236,7 +245,10 @@ yapılmış?" sorusunun cevabını tek yerde bulması.
 | V21 | Teklif ile oy mesajının ayrımı | Aynı `Consensus` mesajı kullanılır; `vote == PENDING` ise **teklif**, `ACK`/`NACK` ise **oy**dur | Ayrı bir mesaj tipi eklemeye gerek kalmadı; `PENDING = 0` zaten "henüz oy yok" demek olduğu için anlam doğal olarak örtüşüyor. |
 | V22 | Drone'un oy ölçütü | Batarya `< %15` ise `NACK`, aksi hâlde `ACK` | Bölüm 3.6 "her drone kendi durumunu kontrol eder" diyor ama ölçütü tanımlamıyordu; `check_emergency()` ile aynı eşik kullanıldı. |
 | V23 | Oy verecek düğüm listesi | Teklif anında **ONLINE olan** drone'lar | Hiç ayağa kalkmamış bir drone'un oyunu beklemek, sürüyü her seferinde 5 saniyelik zaman aşımına mahkûm ederdi (Bölüm 2, non-blocking keşif). |
-| V24 | **`task_alloc`/`consensus` için "TCP"** | Teslim garantisi **QoS ile** sağlanıyor (`RELIABLE` + `TRANSIENT_LOCAL`); taşıma katmanı participant'ın varsayılan UDP taşıyıcısı | Bölüm 3.4 bu iki topic için "TCP" diyor. DDS'te **taşıma katmanı participant seviyesindedir, topic seviyesinde seçilemez** — bir DomainParticipant'ın bazı topic'lerini TCP, bazılarını UDP yapmak mümkün değil. Planın istediği asıl şey (%100 ulaştırma garantisi) `RELIABLE` QoS ile birebir karşılanıyor ve testle doğrulanıyor. Gerçekten TCP taşıyıcı isteniyorsa `DomainParticipantQos`'a bir `TCPv4TransportDescriptor` eklenip initial peers elle tanımlanmalı; bu, multicast tabanlı otomatik keşfi devre dışı bırakır ve Bölüm 2'deki "IP'leri ağ üzerinden keşfet" gereksinimiyle çelişir. |
+| V24 | **`task_alloc`/`consensus` için TCP** | Participant hem UDP hem TCPv4 taşıyıcısını birlikte açar; `task_alloc` ve `consensus` uçları keşifte **yalnızca bir TCP locator ilan eder**, böylece o iki topic'in trafiği gerçek TCP soketinden akar. Heartbeat/telemetri UDP'de kalır. Keşif (SPDP) hâlâ UDP multicast'tir. | Bölüm 3.4 bu iki topic için "TCP" diyor. Yaygın yanılgı, DDS'te taşıyıcının yalnızca participant seviyesinde seçilebildiğidir; doğrusu iki katmanlıdır: **participant hangi taşıyıcıları açacağına**, her **endpoint ise keşifte hangi locator'ı ilan edeceğine** karar verir. Bir endpoint'e elle TCP locator verildiğinde ilan ettiği liste yalnızca TCP olur — ölçüldü: `task_alloc` reader'ı `TCPv4:[..]:5100` ilan ederken, ayar yapılmayan heartbeat reader'ı `TCPv4` + `SHM` + `UDPv4` ilan ediyor. Bu yaklaşımın kritik üstünlüğü: **hiçbir düğümün başkasının IP'sini bilmesi gerekmez**, yalnızca kendi IP'sini (`NODE_IP`) bilir; karşı tarafın adresi hâlâ multicast keşfiyle öğrenilir, yani Bölüm 2'deki otomatik keşif gereksinimi korunur. Alternatif olan `initialPeersList` yaklaşımı her düğüme tüm IP'lerin elle yazılmasını gerektirirdi. |
+| V24.1 | TCP'nin nasıl doğrulandığı | Taşıyıcı ayrımı **birim testinde** kanıtlanır (`FastDDSTcp.GuvenilirTopicYalnizcaTcpLocatorIlanEder`): ayrı bir gözlemci participant, wrapper'ın uçlarının keşifte ilan ettiği locator'ları okur ve `task_alloc`/`consensus` için **yalnızca** `TCPv4`, heartbeat/telemetri için `UDPv4` görüldüğünü doğrular. Gerçek ağda soketlerin ayağa kalktığı ise entegrasyon testinde (`test_07_tcp_tasiyici.sh`) doğrulanır. | İlk yaklaşım "TCP baytlarını say" idi; container'da güvenilir olmadığı ölçülerek görüldü: `/proc/net/snmp`'deki `OutSegs` saf TCP ACK'lerini de sayıyor ve keşif trafiği de TCP kullanıyor — sessiz pencerede bile TCP segmentleri UDP datagramlarını geçebiliyor. Ayrım bu yüzden **kaynağında** (ilan edilen locator) doğrulanıyor; sayaç ölçümü yalnızca "TCP kanalı ölü değil" iddiasını taşıyor. Ayrıca ölçüldü: aynı süreçte iki wrapper kurulduğunda Fast DDS'in **intraprocess delivery** özelliği taşıma katmanını tümüyle atlar (yazan taraftan TCP sökülse bile veri akar, 0 TCP baytı); ayrı süreçlerde ayrım net — 200 `task_alloc` mesajı **+28.238 TCP baytı**, 200 heartbeat yalnızca **+638 bayt**. Aynı sebeple `TRANSIENT_LOCAL` geçmişinin geç katılana ulaşması süreç içinde test edilemiyor; ayrı süreçlerde doğru çalıştığı ölçüldü (geç katılan tam history depth kadar, 10 örnek alıyor). |
+| V24.3 | Locator'ların alıcıya göre elenmesi | Bir participant, **ulaşamayacağı** taşıyıcıya ait locator'ları karşı tarafın duyurusundan eler | Keşif testini yazarken ortaya çıktı: TCP taşıyıcısı olmayan bir gözlemci, güvenilir kanalların locator listesini **boş** görüyor. Aynı mekanizma, TCP taşıyıcısı eksik bir düğümün neden hata vermeden UDP'ye düştüğünü de açıklıyor (bkz. V24.2). |
+| V24.2 | `NODE_IP` verilmezse | TCP kurulmaz, tüm topic'ler UDP'ye döner (geri çekilme yolu) | Düğüm kendi adresini bilmeden karşı tarafa "bana buradan ulaş" diyemez; uydurma bir adres ilan etmek **sessiz** bir iletişim kopukluğu yaratırdı. Ayrıca birim testleri bu yolla TCP'siz de koşabiliyor. Not: bir düğümde TCP taşıyıcısı eksikse Fast DDS sessizce UDP'ye düşer (ölçüldü) — yani yanlış yapılandırma hata vermez, bu yüzden entegrasyon testi "veri ulaştı" değil, "TCP trafiği aktı" diye ölçüyor. |
 | V25 | GCS görev senaryosu | GCS, keşif için 8 sn bekler; sonra sırayla **iki** görev teklif eder: `SCOUT` → (80, 40), ardından `STRIKER` → (150, −60) | Plan GCS'in görev emri vereceğini söylüyor ama içeriğini tanımlamıyordu. İki görev, heterojen rol ayrımının (Faz 6.6) gerçek bir akışta gözlemlenmesini sağlıyor. |
 | V26 | `INITIAL_BATTERY` env değişkeni | Düğümün başlangıç bataryası (varsayılan 100) | Faz 6.3'teki NACK senaryosunu kurmanın yolu: bataryası kritik olan drone consensus'ta `NACK` verir. Planda yok, ama 6.3'ün test edilebilmesi için gerekli. |
 | V27 | Görev queue'suna erişim | GCS oylama başlatmak için queue'ya **doğrudan dokunmaz**; `SwarmManager::request_consensus()` ile istek bırakır, queue'yu Task Engine düzenler | İlk uygulamada `GcsController` queue'ya ana thread'den dokunuyordu — bu, "task_queue'ya yalnızca Thread 3 dokunur" tasarımını bozan gerçek bir data race'ti ve `on_enter()` atlandığı için oylamayı anında zaman aşımına düşürüyordu. |
@@ -417,6 +429,29 @@ uygulama kodu hiç IP taşımadan karşılanır.
 **QoS (Quality of Service)** — "Bu akış nasıl davransın?" ayarları. Uyuşmayan
 QoS'ta yayıncı ve abone **hiç eşleşmez** ve veri akmaz — bu yüzden iki taraf
 tek bir yerden ayarlanır.
+
+**Endpoint** — DataWriter ve DataReader'ın ortak adı; bir topic'in üzerindeki
+uçlardan biri.
+
+**Locator** — Bir endpoint'e "nasıl ulaşılır" bilgisini tek bir yapıda
+toplar: **[taşıyıcı tipi] + [IP adresi] + [port]**. TCP locator'ında iki port
+kavramı vardır: *fiziksel* port gerçek TCP soketinin dinlediği porttur,
+*mantıksal* port ise aynı bağlantı üzerinden birden fazla RTPS muhatabını
+ayırmaya yarar.
+
+**Transport (taşıyıcı) seçimi — iki katmanlıdır** — Yaygın yanılgı, DDS'te
+taşıyıcının yalnızca participant seviyesinde seçilebildiğidir. Doğrusu:
+*(1)* participant **hangi taşıyıcıları açacağına** karar verir (bizimki UDP ve
+TCPv4'ü birlikte açar); *(2)* her endpoint keşif sırasında **hangi locator'ı
+ilan edeceğine** karar verir. Bir endpoint'e elle TCP locator verilirse ilan
+ettiği liste yalnızca TCP olur (varsayılanların YERİNE geçer) ve o topic'in
+verisi TCP'den akar. Böylece taşıyıcı fiilen **topic bazında** seçilebilir.
+
+**Intraprocess delivery** — Fast DDS, yayıncı ve abone **aynı süreçteyse**
+veriyi taşıma katmanına hiç indirmeden doğrudan bellekten teslim eder. Hızlıdır,
+ama taşıyıcıyla ilgili hiçbir şeyi test edemezsiniz: TCP tümüyle sökülse bile
+veri akmaya devam eder. Taşıyıcı davranışı bu yüzden yalnızca ayrı süreçlerde
+(entegrasyon testinde) ölçülebilir.
 
 **Listener ve DDS thread'i** — Veri geldiğinde Fast DDS
 `on_data_available()`'ı **kendi thread'inden** çağırır. Bu yüzden callback

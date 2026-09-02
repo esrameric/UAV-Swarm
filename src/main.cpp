@@ -196,7 +196,15 @@ int main()
                        + " role=" + (config.node_type == swarm::NodeType::DRONE
                                              ? swarm::drone_role_name(config.role)
                                              : "-")
-                       + " domain=" + std::to_string(config.domain_id));
+                       + " domain=" + std::to_string(config.domain_id)
+                       + " tasiyici=" + (config_result.tcp.enabled
+                                                 ? "UDP+TCP(" + config_result.tcp.local_ip
+                                                           + ":"
+                                                           + std::to_string(
+                                                                     config_result.tcp
+                                                                             .listening_port)
+                                                           + ")"
+                                                 : "yalniz UDP"));
 
     swarm::SwarmManager& manager = swarm::SwarmManager::get_instance();
     manager.init(config);
@@ -204,7 +212,7 @@ int main()
 
     // FastDDSWrapper yığında (stack) duruyor: main'den çıkarken yıkıcısı
     // otomatik çalışıp tüm DDS varlıklarını temizler (RAII).
-    swarm::FastDDSWrapper dds{config.domain_id};
+    swarm::FastDDSWrapper dds{config.domain_id, config_result.tcp};
     if (!dds.init())
     {
         swarm::log("node", "HATA: DDS baslatilamadi");

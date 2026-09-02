@@ -2,6 +2,8 @@
 //  /swarm/consensus  —  2-Phase Commit oylama mesajı
 //
 //  Protokol/QoS : TCP, Reliable, Transient Local  (Bölüm 3.4)
+//  Taşıyıcı seçimi endpoint seviyesinde yapılır (bkz. fastdds_wrapper.hpp);
+//  bu topic'in uçları keşifte yalnızca bir TCP locator ilan eder.
 //
 //  Akış (Bölüm 3.6):
 //    1) Teklif  : GCS bir transaction_id ile "göreve başlayalım mı?" yayınlar

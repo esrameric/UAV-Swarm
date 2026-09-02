@@ -75,6 +75,7 @@ ConfigResult read_config_from_env()
         {"ROS_DOMAIN_ID", 42, 232, 0},      // DDS domain üst sınırı 232
         {"INITIAL_BATTERY", 100, 100, 0},
         {"FAULT_SILENT_CONSENSUS", 0, 1, 0},
+        {"TCP_PORT", 5100, 65535, 0},
     };
 
     for (NumericField& field : fields)
@@ -109,6 +110,23 @@ ConfigResult read_config_from_env()
     result.config.domain_id = static_cast<uint32_t>(fields[1].value);
     result.starting_battery = static_cast<uint8_t>(fields[2].value);
     result.config.fault_silent_consensus = (fields[3].value == 1);
+
+    // --- TCP taşıyıcısı (Bölüm 3.4) -----------------------------------------
+    // NODE_IP yoksa TCP kurulmaz; sistem tümüyle UDP'ye döner. Port 0 geçerli
+    // bir dinleme portu değildir, o yüzden ayrıca reddediliyor.
+    const std::string node_ip = read_env("NODE_IP", "");
+    if (!node_ip.empty())
+    {
+        if (fields[4].value == 0)
+        {
+            result.error = "TCP_PORT 0 olamaz";
+            return result;
+        }
+
+        result.tcp.enabled = true;
+        result.tcp.local_ip = node_ip;
+        result.tcp.listening_port = static_cast<uint16_t>(fields[4].value);
+    }
 
     result.success = true;
     return result;

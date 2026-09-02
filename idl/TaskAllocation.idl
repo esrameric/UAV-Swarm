@@ -2,6 +2,8 @@
 //  /swarm/task_alloc  —  Görev dağıtım emri (GCS -> sürü)
 //
 //  Protokol/QoS : TCP, Reliable, Transient Local  (Bölüm 3.4)
+//  Neden TCP: Bu topic'in uçları keşifte yalnızca bir TCP locator ilan eder;
+//  taşıyıcı seçimi endpoint seviyesinde yapılır (bkz. fastdds_wrapper.hpp).
 //  Neden Reliable: Görev emrinin kaybolması kabul edilemez.
 //  Neden Transient Local: Emirden SONRA ağa katılan bir düğüm de son emri
 //  alabilsin diye (yayıncı son örneği saklar).

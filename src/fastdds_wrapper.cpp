@@ -12,6 +12,8 @@
 #include <fastdds/dds/subscriber/Subscriber.hpp>
 #include <fastdds/dds/topic/Topic.hpp>
 #include <fastdds/dds/topic/TypeSupport.hpp>
+#include <fastdds/rtps/transport/TCPv4TransportDescriptor.hpp>
+#include <fastdds/utils/IPLocator.hpp>
 
 #include "ConsensusPubSubTypes.hpp"
 #include "HeartbeatPubSubTypes.hpp"
@@ -24,7 +26,33 @@ namespace swarm {
 // uzun isim alanını (eprosima::fastdds::dds::...) her satırda yazmamak için.
 using namespace eprosima::fastdds::dds;
 
+using eprosima::fastdds::rtps::IPLocator;
+using eprosima::fastdds::rtps::Locator_t;
+using eprosima::fastdds::rtps::TCPv4TransportDescriptor;
+
 namespace {
+
+// ---------------------------------------------------------------------------
+//  LOCATOR NEDİR? Bir uca "nasıl ulaşılır" bilgisini tek bir yapıda toplar:
+//  [taşıyıcı tipi] + [IP adresi] + [port]. UDP'de tek bir port yeterlidir;
+//  TCP'de Fast DDS iki ayrı port kavramı kullanır:
+//
+//    fiziksel (physical) port : gerçek TCP soketinin dinlediği port
+//    mantıksal (logical) port : aynı TCP bağlantısı üzerinden birden fazla
+//                               RTPS muhatabını ayırmak için kullanılan numara
+//
+//  İkisini de aynı değere ayarlıyoruz; tek bir dinleme portumuz olduğu için
+//  ayırmanın bir faydası yok ve okunması kolaylaşıyor.
+// ---------------------------------------------------------------------------
+Locator_t make_tcp_locator(const std::string& ip, uint16_t physical_port)
+{
+    Locator_t locator;
+    locator.kind = LOCATOR_KIND_TCPv4;
+    IPLocator::setIPv4(locator, ip);
+    IPLocator::setPhysicalPort(locator, physical_port);
+    IPLocator::setLogicalPort(locator, physical_port);
+    return locator;
+}
 
 // ---------------------------------------------------------------------------
 //  DdsKanal — bir topic'in topic + writer + reader + listener dörtlüsü
@@ -46,9 +74,17 @@ class DdsChannel : public DataReaderListener
 public:
     using Callback = std::function<void(const MessageType&)>;
 
+    // tcp_locator nullptr degilse, bu kanalin writer ve reader'i keşifte
+    // YALNIZCA o TCP locator'i ilan eder; boylece bu topic'in trafigi TCP
+    // uzerinden akar (bkz. baslikta "TASIYICI NASIL SECILIYOR").
+    //
+    // Writer'a da yaziyoruz, sadece reader'a degil: RELIABLE QoS'ta alici
+    // gonderene ACKNACK dondurur. Writer'in locator'i ayarlanmazsa veri
+    // TCP'den giderken onaylar UDP'den donerdi.
     bool setup(DomainParticipant* participant,
              const std::string& topic_name,
-             bool reliable)
+             bool reliable,
+             const Locator_t* tcp_locator)
     {
         participant_ = participant;
 
@@ -78,6 +114,10 @@ public:
         DataWriterQos writer_qos = DATAWRITER_QOS_DEFAULT;
         apply_qos(writer_qos.reliability(), writer_qos.durability(),
                    writer_qos.history(), reliable);
+        if (tcp_locator != nullptr)
+        {
+            writer_qos.endpoint().unicast_locator_list.push_back(*tcp_locator);
+        }
 
         writer_ = publisher_->create_datawriter(topic_, writer_qos);
         if (writer_ == nullptr)
@@ -95,6 +135,10 @@ public:
         DataReaderQos reader_qos = DATAREADER_QOS_DEFAULT;
         apply_qos(reader_qos.reliability(), reader_qos.durability(),
                    reader_qos.history(), reliable);
+        if (tcp_locator != nullptr)
+        {
+            reader_qos.endpoint().unicast_locator_list.push_back(*tcp_locator);
+        }
 
         reader_ = subscriber_->create_datareader(topic_, reader_qos, this);
         return reader_ != nullptr;
@@ -247,9 +291,10 @@ struct FastDDSWrapper::Impl
     DdsChannel<Consensus, ConsensusPubSubType> consensus;
 };
 
-FastDDSWrapper::FastDDSWrapper(uint32_t domain_id)
+FastDDSWrapper::FastDDSWrapper(uint32_t domain_id, TcpTransportConfig tcp_config)
     : impl_(std::make_unique<Impl>())
     , domain_id_(domain_id)
+    , tcp_config_(std::move(tcp_config))
 {
 }
 
@@ -273,6 +318,30 @@ bool FastDDSWrapper::init()
     DomainParticipantQos participant_qos = PARTICIPANT_QOS_DEFAULT;
     participant_qos.name("swarm_node");
 
+    // --- TCP taşıyıcısı (Bölüm 3.4) -----------------------------------------
+    // Participant, UDP'ye EK OLARAK bir TCPv4 taşıyıcısı açar. use_builtin_
+    // transports açık kalıyor: keşif (SPDP) UDP multicast'ten yürümeye devam
+    // etsin diye. Kapatsaydık her düğümün diğerlerinin IP'sini önceden bilmesi
+    // gerekirdi ve Bölüm 2'deki otomatik keşif gereksinimi çökerdi.
+    if (tcp_config_.enabled)
+    {
+        auto tcp_transport = std::make_shared<TCPv4TransportDescriptor>();
+        tcp_transport->add_listener_port(tcp_config_.listening_port);
+
+        // TCP_NODELAY (Nagle algoritmasını kapatır): Nagle, küçük paketleri
+        // biriktirip tek seferde göndererek verimi artırır ama gecikme ekler.
+        // Consensus oyları küçük ve gecikmeye duyarlı olduğu için kapatıyoruz.
+        tcp_transport->enable_tcp_nodelay = true;
+
+        // Taşıyıcının duyurularında kullanacağı adres. İsmi "WAN" olsa da
+        // burada NAT/internet senaryosu yok: bu, Fast DDS'in TCP taşıyıcısına
+        // "kendini hangi adresle tanıt" demenin yolu. Docker'da container'ın
+        // sabit IP'si veriliyor.
+        tcp_transport->set_WAN_address(tcp_config_.local_ip);
+
+        participant_qos.transport().user_transports.push_back(tcp_transport);
+    }
+
     // Aynı domain_id'yi paylaşan participant'lar birbirini SPDP ile
     // (UDP multicast) otomatik bulur — "drone'lar birbirinin IP'sini ağ
     // üzerinden keşfeder" gereksinimi burada karşılanıyor (Bölüm 3.2).
@@ -286,15 +355,29 @@ bool FastDDSWrapper::init()
         return false;
     }
 
+    // Güvenilir kanalların ilan edeceği TCP locator. tcp_config_.enabled
+    // kapalıysa nullptr geçilir ve o kanallar da UDP'de kalır.
+    Locator_t tcp_locator;
+    const Locator_t* tcp_locator_ptr = nullptr;
+    if (tcp_config_.enabled)
+    {
+        tcp_locator = make_tcp_locator(tcp_config_.local_ip,
+                                        tcp_config_.listening_port);
+        tcp_locator_ptr = &tcp_locator;
+    }
+
     // Bölüm 3.4'teki QoS haritası. İsimlendirilmiş sabitler, çağrı
     // yerinde `true`/`false` görmekten çok daha okunur.
     const bool BEST_EFFORT = false;
     const bool RELIABLE = true;
+    const Locator_t* UDP = nullptr;   // locator ilan etme -> varsayılan UDP
 
-    if (!impl_->heartbeat.setup(impl_->participant, "swarm/heartbeat", BEST_EFFORT) ||
-        !impl_->telemetry.setup(impl_->participant, "swarm/telemetry", BEST_EFFORT) ||
-        !impl_->task_alloc.setup(impl_->participant, "swarm/task_alloc", RELIABLE) ||
-        !impl_->consensus.setup(impl_->participant, "swarm/consensus", RELIABLE))
+    if (!impl_->heartbeat.setup(impl_->participant, "swarm/heartbeat", BEST_EFFORT, UDP) ||
+        !impl_->telemetry.setup(impl_->participant, "swarm/telemetry", BEST_EFFORT, UDP) ||
+        !impl_->task_alloc.setup(impl_->participant, "swarm/task_alloc", RELIABLE,
+                                  tcp_locator_ptr) ||
+        !impl_->consensus.setup(impl_->participant, "swarm/consensus", RELIABLE,
+                                 tcp_locator_ptr))
     {
         std::cerr << "[FastDDSWrapper] Topic kurulumu basarisiz" << std::endl;
         return false;

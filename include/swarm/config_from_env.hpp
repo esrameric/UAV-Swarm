@@ -7,6 +7,13 @@
 //      ROS_DOMAIN_ID    DDS domain numarası  (varsayılan: 42)
 //      INITIAL_BATTERY  0-100                (varsayılan: 100)
 //      FAULT_SILENT_CONSENSUS  0 | 1         (varsayılan: 0)
+//      NODE_IP          bu düğümün kendi IP'si   (varsayılan: yok -> TCP kapalı)
+//      TCP_PORT         TCP dinleme portu        (varsayılan: 5100)
+//
+//  NODE_IP verilmezse TCP taşıyıcısı kurulmaz ve tüm topic'ler UDP'den gider.
+//  Bilinçli bir tercih: düğüm kendi adresini bilmeden karşı tarafa "bana
+//  buradan ulaş" diyemez, uydurma bir adres ilan etmek ise sessiz bir
+//  iletişim kopukluğu yaratırdı.
 //
 //  Neden ayrı bir dosya? Bu mantık main.cpp içinde olsaydı test edilemezdi:
 //  main() bir birim testinden çağrılamaz. Ayrıca hata durumunda burada
@@ -20,6 +27,7 @@
 #include <cstdint>
 #include <string>
 
+#include "swarm/fastdds_wrapper.hpp"
 #include "swarm/swarm_manager.hpp"
 
 namespace swarm {
@@ -30,6 +38,10 @@ struct ConfigResult
     std::string error;          // basarili == false iken doludur
     SwarmConfig config{};
     uint8_t starting_battery = 100;
+
+    // Taşıyıcı ayarı SwarmConfig'in İÇİNDE değil: SwarmConfig uygulama
+    // mantığının yapılandırmasıdır ve SwarmManager DDS'i tanımaz (bkz. V19).
+    TcpTransportConfig tcp{};
 };
 
 // Ortam değişkenlerini okuyup doğrular.
